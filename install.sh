@@ -629,12 +629,19 @@ install_window_buttons() {
     return 1
   fi
 
+  # Upstream still pins C++14; KDecoration3 6.3+ headers need C++20 (operator<=>).
+  if grep -qE 'set\(CMAKE_CXX_STANDARD 14\)' "$src/CMakeLists.txt"; then
+    sed -i 's/set(CMAKE_CXX_STANDARD 14)/set(CMAKE_CXX_STANDARD 20)/' "$src/CMakeLists.txt"
+    log "  patched window-buttons CMakeLists.txt for C++20 (KDecoration3)"
+  fi
+
   log "  building org.kde.windowbuttons + appletdecoration → /usr (log: $logf)"
   dest_rm "$src/build"
   mkdir -p "$src/build"
   if (
     cd "$src/build"
     cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_CXX_STANDARD=20 -DCMAKE_CXX_STANDARD_REQUIRED=ON \
       -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -Wno-dev .. \
       && cmake --build . -j"$(nproc)" \
       && as_root cmake --install .
