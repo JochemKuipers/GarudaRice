@@ -419,6 +419,8 @@ install_packages() {
         pkg_any qt5-style-kvantum kvantum || warn "Kvantum Qt style missing — install qt6-style-kvantum"
       fi
       pkg_any plasma-widgets-addons kdeplasma-addons
+      # Silences “AdwaitaLegacy not found” when Adwaita is pulled in as a fallback
+      pkg_any adwaita-icon-theme-legacy adwaita-icon-theme || true
       have starship || install_starship
       have starship && PKG_OK+=("starship") || PKG_FAILED+=("starship")
       ;;
