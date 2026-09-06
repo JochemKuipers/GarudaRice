@@ -48,3 +48,12 @@ Scale=1
 BorderSizeAuto=false
 ButtonsOnLeft=XAI
 ButtonsOnRight=
+library=org.kde.kwin.aurorae.v2
+theme=__aurorae__svg__Sweet-Dark
+
+[org.kde.kdecoration3]
+BorderSizeAuto=false
+ButtonsOnLeft=XAI
+ButtonsOnRight=
+library=org.kde.kwin.aurorae.v2
+theme=__aurorae__svg__Sweet-Dark

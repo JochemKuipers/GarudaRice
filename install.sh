@@ -603,11 +603,57 @@ ensure_window_buttons_deps() {
   esac
 }
 
+# Upstream applet-window-buttons6 still assumes Aurorae v1 + C++14.
+# Plasma 6.6+ registers SVG themes as org.kde.kwin.aurorae.v2; without this
+# the applet takes the Breeze/plugin path and Sweet buttons render blank.
+patch_window_buttons_sources() {
+  local src="$1" deco qml
+  deco="$src/libappletdecoration/decorationsmodel.cpp"
+  [[ -f "$deco" ]] || return 0
+
+  if grep -qE 'set\(CMAKE_CXX_STANDARD 14\)' "$src/CMakeLists.txt"; then
+    sed -i 's/set(CMAKE_CXX_STANDARD 14)/set(CMAKE_CXX_STANDARD 20)/' "$src/CMakeLists.txt"
+    log "  patched window-buttons CMakeLists.txt for C++20 (KDecoration3)"
+  fi
+
+  if ! grep -q 'org.kde.kwin.aurorae.v2' "$deco"; then
+    python3 - "$deco" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+text = p.read_text()
+old = 'static const QString s_auroraePlugin = QStringLiteral("org.kde.kwin.aurorae");'
+new = old + '\nstatic const QString s_auroraePluginV2 = QStringLiteral("org.kde.kwin.aurorae.v2");'
+text = text.replace(old, new, 1)
+text = text.replace(
+    'if (data.pluginName == s_auroraePlugin && data.themeName.startsWith(s_auroraeSvgTheme))',
+    'if ((data.pluginName == s_auroraePlugin || data.pluginName == s_auroraePluginV2) && data.themeName.startsWith(s_auroraeSvgTheme))',
+    1,
+)
+p.write_text(text)
+PY
+    log "  patched decorationsmodel.cpp for Aurorae v2 (Plasma 6.6+)"
+  fi
+
+  for qml in DecorationsComboBox.qml ColorsComboBox.qml; do
+    [[ -f "$ROOT/overlays/window-buttons/$qml" ]] || continue
+    [[ -f "$src/package/contents/ui/config/$qml" ]] || continue
+    install -m 0644 "$ROOT/overlays/window-buttons/$qml" "$src/package/contents/ui/config/$qml"
+  done
+}
+
+window_buttons_sources_need_rebuild() {
+  local deco="$BUILD_DIR/window-buttons/libappletdecoration/decorationsmodel.cpp"
+  [[ -f "$deco" ]] || return 0
+  grep -q 'org.kde.kwin.aurorae.v2' "$deco" || return 0
+  return 1
+}
+
 # Prefer Sweet/Aurorae window buttons (Garuda look). Falls back to pure QML.
 install_window_buttons() {
   WINDOW_BUTTONS_MODE=fallback
 
-  if windowbuttons_usable; then
+  if windowbuttons_usable && ! window_buttons_sources_need_rebuild; then
     log "  = org.kde.windowbuttons + appletdecoration (already usable)"
     WINDOW_BUTTONS_MODE=aurorae
     return 0
@@ -615,7 +661,7 @@ install_window_buttons() {
 
   # Distro package only exists on Arch/Garuda — don't apt-probe it on Debian/Pika
   if [[ "$DISTRO_FAMILY" == arch ]] && pkg_any plasma-applet-window-buttons; then
-    if windowbuttons_usable; then
+    if windowbuttons_usable && ! window_buttons_sources_need_rebuild; then
       WINDOW_BUTTONS_MODE=aurorae
       return 0
     fi
@@ -629,11 +675,7 @@ install_window_buttons() {
     return 1
   fi
 
-  # Upstream still pins C++14; KDecoration3 6.3+ headers need C++20 (operator<=>).
-  if grep -qE 'set\(CMAKE_CXX_STANDARD 14\)' "$src/CMakeLists.txt"; then
-    sed -i 's/set(CMAKE_CXX_STANDARD 14)/set(CMAKE_CXX_STANDARD 20)/' "$src/CMakeLists.txt"
-    log "  patched window-buttons CMakeLists.txt for C++20 (KDecoration3)"
-  fi
+  patch_window_buttons_sources "$src"
 
   log "  building org.kde.windowbuttons + appletdecoration → /usr (log: $logf)"
   dest_rm "$src/build"
@@ -879,6 +921,11 @@ install_themes() {
     # ensure widgetStyle line exists under [kdeglobals][KDE]
     if ! grep -q '^widgetStyle=' "$tmp"; then
       sed -i '/^\[kdeglobals\]\[KDE\]/a widgetStyle=kvantum-dark' "$tmp"
+    fi
+    # Plasma 6.3+ reads org.kde.kdecoration3; Dr460nized still writes kdecoration2.
+    if grep -q '\[kwinrc\]\[org.kde.kdecoration2\]' "$tmp" \
+       && ! grep -q '\[kwinrc\]\[org.kde.kdecoration3\]' "$tmp"; then
+      printf '\n[kwinrc][org.kde.kdecoration3]\nlibrary=org.kde.kwin.aurorae.v2\ntheme=__aurorae__svg__Sweet-Dark\n' >>"$tmp"
     fi
     dest_install "$tmp" "$laf_defaults"
     rm -f "$tmp"
