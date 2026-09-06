@@ -42,6 +42,9 @@ for p in \
   "$SHARE/plasma/layout-templates/org.garuda.desktop.defaultPanel" \
   "$SHARE/plasma/layout-templates/org.garuda.desktop.defaultDock" \
   "$SHARE/Kvantum/Dr460nized" \
+  "$SHARE/Kvantum/Sweet" \
+  "$HOME/.config/Kvantum/Dr460nized" \
+  "$HOME/.config/Kvantum/Sweet" \
   "$SHARE/wallpapers/Maldrakor" \
   "$SHARE/wallpapers/garuda-wallpapers" \
   "$SHARE/garuda-rice" \

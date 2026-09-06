@@ -251,6 +251,8 @@ already() {
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
+    plasma-applet-window-buttons|plasma6-applets-window-buttons)
+      appletdecoration_present && [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]] ;;
     cmake) have cmake ;;
     make) have make ;;
     g++|gcc|gcc-c++) have g++ || have c++ ;;
@@ -508,38 +510,124 @@ ensure_build_deps() {
   log "Build deps OK"
 }
 
+# Native QML plugin for window-buttons (org.kde.appletdecoration)
+appletdecoration_present() {
+  [[ -e /usr/lib/qt6/qml/org/kde/appletdecoration/qmldir ]] \
+    || [[ -e /usr/lib64/qt6/qml/org/kde/appletdecoration/qmldir ]] \
+    || compgen -G '/usr/lib/*/qt6/qml/org/kde/appletdecoration/qmldir' >/dev/null 2>&1
+}
+
+ensure_window_buttons_deps() {
+  log "Checking window-buttons build deps..."
+  case "$DISTRO_FAMILY" in
+    arch)
+      already plasma-applet-window-buttons && return 0
+      pkg_each extra-cmake-modules gettext \
+        kdecoration kwin libplasma \
+        kcoreaddons kconfig kdeclarative kpackage ksvg ki18n \
+        kservice kconfigwidgets kcmutils qt6-base qt6-declarative
+      ;;
+    fedora)
+      pkg_each extra-cmake-modules gettext \
+        qt6-qtbase-devel qt6-qtdeclarative-devel \
+        kf6-kcoreaddons-devel kf6-kconfig-devel kf6-kdeclarative-devel \
+        kf6-kpackage-devel kf6-ksvg-devel kf6-ki18n-devel \
+        kf6-kservice-devel kf6-kconfigwidgets-devel kf6-kcmutils-devel \
+        kdecoration-devel kwin-devel libplasma-devel
+      ;;
+    debian)
+      pkg_each extra-cmake-modules gettext \
+        qt6-base-dev qt6-declarative-dev \
+        libkf6coreaddons-dev libkf6config-dev libkf6declarative-dev \
+        libkf6package-dev libkf6svg-dev libkf6i18n-dev \
+        libkf6service-dev libkf6configwidgets-dev libkf6kcmutils-dev \
+        libkwin-dev libplasma-dev
+      # KDecoration3 preferred; fall back to KDecoration2 on older Plasma
+      pkg_any libkdecorations3-dev libkdecorations2-dev \
+        || warn "libkdecorations*-dev missing — window-buttons build may fail"
+      ;;
+  esac
+}
+
+install_window_buttons() {
+  # Distro package is best — includes org.kde.appletdecoration
+  if appletdecoration_present && [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]]; then
+    log "  = org.kde.windowbuttons (system, with appletdecoration)"
+    PKG_OK+=("window-buttons")
+    return 0
+  fi
+  if pkg_any plasma-applet-window-buttons plasma6-applets-window-buttons; then
+    appletdecoration_present && return 0
+  fi
+
+  ensure_window_buttons_deps
+  local src="$BUILD_DIR/window-buttons"
+  [[ -f "$src/CMakeLists.txt" ]] || { warn "window-buttons sources missing"; return 1; }
+
+  log "  building org.kde.windowbuttons (+ appletdecoration) → /usr ..."
+  rm -rf "$src/build"
+  mkdir -p "$src/build"
+  (
+    cd "$src/build"
+    cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -Wno-dev .. \
+      && cmake --build . -j"$(nproc)" \
+      && as_root cmake --install .
+  ) || { warn "window-buttons cmake build failed"; return 1; }
+
+  if appletdecoration_present; then
+    log "  installed org.kde.windowbuttons + org.kde.appletdecoration"
+    PKG_OK+=("window-buttons")
+    return 0
+  fi
+  warn "window-buttons installed but org.kde.appletdecoration still missing"
+  return 1
+}
+
 install_plasmoid_repo() {
   local src="$1" id="$2"
   local SHARE dest
   SHARE="$(rice_share)"
   dest="$SHARE/plasma/plasmoids/$id"
 
-  # Copy into our prefix — upstream install.sh uses $HOME/.local (/root/.local under sudo).
+  # Pure QML / package tree — copy into our prefix (never use upstream install.sh as root → /root/.local)
   if [[ -f "$src/metadata.json" || -f "$src/metadata.desktop" ]]; then
     dest_cp "$src" "$dest"
     log "  installed $id → $dest"
     return 0
   fi
   if [[ -d "$src/package" ]] && [[ -f "$src/package/metadata.json" || -f "$src/package/metadata.desktop" ]]; then
+    # Skip cmake projects that also need a native QML plugin (handled separately)
+    if [[ -f "$src/CMakeLists.txt" && -d "$src/libappletdecoration" ]]; then
+      return 1
+    fi
     dest_cp "$src/package" "$dest"
     log "  installed $id → $dest"
     return 0
   fi
 
-  if [[ -f "$src/install.sh" ]]; then
-    log "  $id via install.sh (XDG_DATA_HOME=$SHARE)..."
-    (
-      cd "$src"
-      if [[ "$USER_INSTALL" == 1 ]]; then
-        env XDG_DATA_HOME="$SHARE" bash ./install.sh
-      else
-        as_root env XDG_DATA_HOME="$SHARE" HOME=/tmp bash ./install.sh
-      fi
-    ) && return 0
-  fi
-
   warn "No plasmoid package in $src"
   return 1
+}
+
+# Dead import on Plasma ≥6.6 where private.appmenu is no longer a public QML module
+patch_window_title() {
+  local f candidates=(
+    "$(rice_share)/plasma/plasmoids/org.kde.windowtitle/contents/ui/main.qml"
+    "$REAL_HOME/.local/share/plasma/plasmoids/org.kde.windowtitle/contents/ui/main.qml"
+    /usr/local/share/plasma/plasmoids/org.kde.windowtitle/contents/ui/main.qml
+    /usr/share/plasma/plasmoids/org.kde.windowtitle/contents/ui/main.qml
+  )
+  for f in "${candidates[@]}"; do
+    [[ -f "$f" ]] || continue
+    if grep -q 'org.kde.plasma.private.appmenu' "$f"; then
+      if [[ -w "$f" ]]; then
+        sed -i '/org\.kde\.plasma\.private\.appmenu/d' "$f"
+      else
+        as_root sed -i '/org\.kde\.plasma\.private\.appmenu/d' "$f"
+      fi
+      log "  patched window-title (removed unused private.appmenu import)"
+    fi
+  done
 }
 
 install_plasmoids() {
@@ -548,7 +636,8 @@ install_plasmoids() {
   log "Plasmoids..."
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
-  install_plasmoid_repo "$BUILD_DIR/window-buttons" "org.kde.windowbuttons" || warn "window-buttons failed"
+  patch_window_title
+  install_window_buttons || warn "window-buttons failed — top-panel buttons need org.kde.appletdecoration"
 
   local src="$BUILD_DIR/blurredwallpaper"
   if [[ -d "$src/a2n.blur" ]]; then dest_cp "$src/a2n.blur" "$SHARE/plasma/wallpapers/a2n.blur"
@@ -602,6 +691,9 @@ install_themes() {
     fi
   done
   dest_cp "$src/usr/share/Kvantum/Dr460nized" "$SHARE/Kvantum/Dr460nized"
+  # Kvantum only scans ~/.config/Kvantum and /usr/share/Kvantum — not /usr/local or ~/.local/share
+  dest_mkdir "$REAL_HOME/.config/Kvantum/Dr460nized"
+  cp -a "$src/usr/share/Kvantum/Dr460nized/." "$REAL_HOME/.config/Kvantum/Dr460nized/"
   dest_cp "$src/usr/share/wallpapers/Maldrakor" "$SHARE/wallpapers/Maldrakor"
 
   # Greeter jpg from Maldrakor plasma wallpaper (skip 63MiB pack)
@@ -658,7 +750,11 @@ install_themes() {
   [[ -d "$kde/aurorae/Sweet-Dark" ]] && dest_cp "$kde/aurorae/Sweet-Dark" "$SHARE/aurorae/themes/Sweet-Dark"
   [[ -d "$kde/aurorae/Sweet-Dark-transparent" ]] && dest_cp "$kde/aurorae/Sweet-Dark-transparent" "$SHARE/aurorae/themes/Sweet-Dark-transparent"
   [[ -d "$kde/colorschemes" ]] && { dest_mkdir "$SHARE/color-schemes"; dest_cp "$kde/colorschemes" "$SHARE/color-schemes"; }
-  [[ -d "$kde/Kvantum/Sweet" ]] && dest_cp "$kde/Kvantum/Sweet" "$SHARE/Kvantum/Sweet"
+  [[ -d "$kde/Kvantum/Sweet" ]] && {
+    dest_cp "$kde/Kvantum/Sweet" "$SHARE/Kvantum/Sweet"
+    dest_mkdir "$REAL_HOME/.config/Kvantum/Sweet"
+    cp -a "$kde/Kvantum/Sweet/." "$REAL_HOME/.config/Kvantum/Sweet/"
+  }
   [[ -d "$kde/cursors/Sweet-cursors" ]] && dest_cp "$kde/cursors/Sweet-cursors" "$SHARE/icons/Sweet-cursors"
   [[ -d "$kde/konsole" ]] && { dest_mkdir "$SHARE/konsole"; dest_cp "$kde/konsole" "$SHARE/konsole"; }
   [[ -d "$kde/sddm" ]] && dest_cp "$kde/sddm" "$SHARE/sddm/themes/Sweet"
