@@ -4,7 +4,7 @@ Close After Last=true
 [KTextEditor Renderer]
 Animate Bracket Matching=true
 Auto Color Theme Selection=true
-Font=FiraCode Nerd Font Mono,11,-1,5,50,0,0,0,0,0
+Font=Fira Code,11,-1,5,50,0,0,0,0,0
 
 [KTextEditor View]
 Smart Copy Cut=true

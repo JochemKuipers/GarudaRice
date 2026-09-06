@@ -244,10 +244,8 @@ already() {
     plasma-workspace) have plasmashell ;;
     kvantum|qt6-style-kvantum|qt6-style-kvantum-themes)
       have kvantummanager || have kvantum ;;
-    fonts-fira-sans|ttf-fira-sans|mozilla-fira-sans-fonts)
-      fc-list 2>/dev/null | grep -qi 'Fira Sans' ;;
-    ttf-firacode-nerd)
-      fc-list 2>/dev/null | grep -qi 'FiraCode Nerd' ;;
+    fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
+      fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
     cmake) have cmake ;;
     make) have make ;;
     g++|gcc|gcc-c++) have g++ || have c++ ;;
@@ -335,18 +333,6 @@ print_pkg_report() {
   warn "Install continues. Install the failed ones manually if you need them."
 }
 
-install_nerd_font() {
-  already ttf-firacode-nerd && return 0
-  local dir
-  [[ "$USER_INSTALL" == 1 ]] && dir="$REAL_HOME/.local/share/fonts/FiraCodeNerd" || dir="$PREFIX/share/fonts/FiraCodeNerd"
-  log "Downloading FiraCode Nerd Font..."
-  download "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip" "$BUILD_DIR/FiraCode.zip"
-  dest_mkdir "$dir"
-  if [[ -w "$dir" ]]; then unzip -o -q "$BUILD_DIR/FiraCode.zip" -d "$dir"
-  else as_root unzip -o -q "$BUILD_DIR/FiraCode.zip" -d "$dir"; fi
-  fc-cache -f "$dir" 2>/dev/null || true
-}
-
 install_starship() {
   have starship && return 0
   log "Installing starship..."
@@ -360,18 +346,17 @@ install_packages() {
   case "$DISTRO_FAMILY" in
     arch)
       pkg_each fish starship bat fzf fastfetch \
-        ttf-fira-sans ttf-firacode-nerd git curl wget unzip zip \
-        plasma-workspace konsole
+        git curl wget unzip zip plasma-workspace konsole
+      pkg_any ttf-fira-code otf-fira-code
       pkg_any kvantum
       pkg_any eza
       ;;
     fedora)
       pkg_each fish starship bat fzf fastfetch \
-        mozilla-fira-sans-fonts git curl wget unzip zip \
-        plasma-workspace konsole
+        git curl wget unzip zip plasma-workspace konsole
+      pkg_any fira-code-fonts
       pkg_any kvantum
       pkg_any eza
-      install_nerd_font
       ;;
     debian)
       if already fish; then
@@ -381,14 +366,15 @@ install_packages() {
         pkg fish || die "apt could not install fish (enable universe/sid repos if needed)"
         PKG_OK+=("fish")
       fi
-      pkg_each bat fzf fastfetch fonts-fira-sans \
+      pkg_each bat fzf fastfetch \
         git curl wget unzip zip xz-utils \
         plasma-workspace konsole
+      # https://packages.debian.org/sid/fonts/fonts-firacode
+      pkg_any fonts-firacode
       pkg_any eza exa
       pkg_any qt6-style-kvantum qt6-style-kvantum-themes kvantum
       have starship || install_starship
       have starship && PKG_OK+=("starship") || PKG_FAILED+=("starship")
-      install_nerd_font
       ;;
   esac
   have fish || die "fish is required but not installed"
