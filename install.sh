@@ -605,7 +605,8 @@ install_window_buttons() {
     return 0
   fi
 
-  if pkg_any plasma-applet-window-buttons; then
+  # Distro package only exists on Arch/Garuda — don't apt-probe it on Debian/Pika
+  if [[ "$DISTRO_FAMILY" == arch ]] && pkg_any plasma-applet-window-buttons; then
     if windowbuttons_usable; then
       WINDOW_BUTTONS_MODE=aurorae
       return 0
