@@ -100,7 +100,9 @@ dest_cp() {
 
 dest_rm() {
   [[ -e "$1" || -L "$1" ]] || return 0
-  if [[ -w "$(dirname "$1")" ]]; then rm -rf "$1"; else as_root rm -rf "$1"; fi
+  # Parent writable ≠ contents removable (root-owned cmake build trees)
+  if rm -rf "$1" 2>/dev/null; then return 0; fi
+  as_root rm -rf "$1"
 }
 
 backup() {
@@ -252,7 +254,7 @@ already() {
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
     plasma-applet-window-buttons|plasma6-applets-window-buttons)
-      appletdecoration_present && [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]] ;;
+      [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]] ;;
     cmake) have cmake ;;
     make) have make ;;
     g++|gcc|gcc-c++) have g++ || have c++ ;;
@@ -418,7 +420,7 @@ clone() {
     return
   fi
   log "Clone $name..."
-  rm -rf "$dir"
+  dest_rm "$dir"
   if [[ -n "$ref" ]]; then
     git clone --depth 1 --branch "$ref" "$url" "$dir" 2>/dev/null || git clone --depth 1 "$url" "$dir"
   else
@@ -448,7 +450,7 @@ fetch_all() {
   local tarball="$BUILD_DIR/garuda-dr460nized.tar.gz" src="$BUILD_DIR/garuda-dr460nized"
   if [[ "$DO_UPDATE" == 1 || ! -d "$src/.fetched" ]]; then
     log "Download garuda-dr460nized $DR460NIZED_TAG..."
-    rm -rf "$src"; mkdir -p "$src"
+    dest_rm "$src"; mkdir -p "$src"
     download "https://gitlab.com/garuda-linux/themes-and-settings/settings/garuda-dr460nized/-/archive/${DR460NIZED_TAG}/garuda-dr460nized-${DR460NIZED_TAG}.tar.gz" "$tarball"
     tar -xf "$tarball" -C "$src" --strip-components=1 2>/dev/null || tar -xf "$tarball" -C "$src"
     mkdir -p "$src/.fetched"; rm -f "$tarball"
@@ -458,14 +460,15 @@ fetch_all() {
   clone candy-icons "https://github.com/EliverLara/candy-icons.git"
   clone beautyline "https://gitlab.com/garuda-linux/themes-and-settings/artwork/beautyline.git"
   clone panel-colorizer "https://github.com/luisbocanegra/plasma-panel-colorizer.git"
-  clone window-buttons "https://github.com/optionmishra/applet-window-buttons6.git"
+  # Pure-QML window buttons (no appletdecoration / cmake) — works on Debian/PikaOS
+  clone panel-window-controls "https://github.com/EmanCastillo/panelwindowcontrols.git"
   clone window-title "https://github.com/dhruv8sh/plasma6-window-title-applet.git"
   clone blurredwallpaper "https://github.com/bouteillerAlan/blurredwallpaper.git"
 
   if [[ "$DO_UPDATE" == 1 || ! -d "$BUILD_DIR/sweet-gtk-dark/.fetched" ]]; then
     log "Download Sweet-Dark GTK..."
     download "$SWEET_GTK_RELEASE" "$BUILD_DIR/Sweet-Dark.tar.xz"
-    rm -rf "$BUILD_DIR/sweet-gtk-dark"; mkdir -p "$BUILD_DIR/sweet-gtk-dark"
+    dest_rm "$BUILD_DIR/sweet-gtk-dark"; mkdir -p "$BUILD_DIR/sweet-gtk-dark"
     tar -xf "$BUILD_DIR/Sweet-Dark.tar.xz" -C "$BUILD_DIR/sweet-gtk-dark"
     mkdir -p "$BUILD_DIR/sweet-gtk-dark/.fetched"
     rm -f "$BUILD_DIR/Sweet-Dark.tar.xz"
@@ -510,79 +513,6 @@ ensure_build_deps() {
   log "Build deps OK"
 }
 
-# Native QML plugin for window-buttons (org.kde.appletdecoration)
-appletdecoration_present() {
-  [[ -e /usr/lib/qt6/qml/org/kde/appletdecoration/qmldir ]] \
-    || [[ -e /usr/lib64/qt6/qml/org/kde/appletdecoration/qmldir ]] \
-    || compgen -G '/usr/lib/*/qt6/qml/org/kde/appletdecoration/qmldir' >/dev/null 2>&1
-}
-
-ensure_window_buttons_deps() {
-  log "Checking window-buttons build deps..."
-  case "$DISTRO_FAMILY" in
-    arch)
-      already plasma-applet-window-buttons && return 0
-      pkg_each extra-cmake-modules gettext \
-        kdecoration kwin libplasma \
-        kcoreaddons kconfig kdeclarative kpackage ksvg ki18n \
-        kservice kconfigwidgets kcmutils qt6-base qt6-declarative
-      ;;
-    fedora)
-      pkg_each extra-cmake-modules gettext \
-        qt6-qtbase-devel qt6-qtdeclarative-devel \
-        kf6-kcoreaddons-devel kf6-kconfig-devel kf6-kdeclarative-devel \
-        kf6-kpackage-devel kf6-ksvg-devel kf6-ki18n-devel \
-        kf6-kservice-devel kf6-kconfigwidgets-devel kf6-kcmutils-devel \
-        kdecoration-devel kwin-devel libplasma-devel
-      ;;
-    debian)
-      pkg_each extra-cmake-modules gettext \
-        qt6-base-dev qt6-declarative-dev \
-        libkf6coreaddons-dev libkf6config-dev libkf6declarative-dev \
-        libkf6package-dev libkf6svg-dev libkf6i18n-dev \
-        libkf6service-dev libkf6configwidgets-dev libkf6kcmutils-dev \
-        libkwin-dev libplasma-dev
-      # KDecoration3 preferred; fall back to KDecoration2 on older Plasma
-      pkg_any libkdecorations3-dev libkdecorations2-dev \
-        || warn "libkdecorations*-dev missing — window-buttons build may fail"
-      ;;
-  esac
-}
-
-install_window_buttons() {
-  # Distro package is best — includes org.kde.appletdecoration
-  if appletdecoration_present && [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]]; then
-    log "  = org.kde.windowbuttons (system, with appletdecoration)"
-    PKG_OK+=("window-buttons")
-    return 0
-  fi
-  if pkg_any plasma-applet-window-buttons plasma6-applets-window-buttons; then
-    appletdecoration_present && return 0
-  fi
-
-  ensure_window_buttons_deps
-  local src="$BUILD_DIR/window-buttons"
-  [[ -f "$src/CMakeLists.txt" ]] || { warn "window-buttons sources missing"; return 1; }
-
-  log "  building org.kde.windowbuttons (+ appletdecoration) → /usr ..."
-  rm -rf "$src/build"
-  mkdir -p "$src/build"
-  (
-    cd "$src/build"
-    cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release -Wno-dev .. \
-      && cmake --build . -j"$(nproc)" \
-      && as_root cmake --install .
-  ) || { warn "window-buttons cmake build failed"; return 1; }
-
-  if appletdecoration_present; then
-    log "  installed org.kde.windowbuttons + org.kde.appletdecoration"
-    PKG_OK+=("window-buttons")
-    return 0
-  fi
-  warn "window-buttons installed but org.kde.appletdecoration still missing"
-  return 1
-}
-
 install_plasmoid_repo() {
   local src="$1" id="$2"
   local SHARE dest
@@ -596,10 +526,6 @@ install_plasmoid_repo() {
     return 0
   fi
   if [[ -d "$src/package" ]] && [[ -f "$src/package/metadata.json" || -f "$src/package/metadata.desktop" ]]; then
-    # Skip cmake projects that also need a native QML plugin (handled separately)
-    if [[ -f "$src/CMakeLists.txt" && -d "$src/libappletdecoration" ]]; then
-      return 1
-    fi
     dest_cp "$src/package" "$dest"
     log "  installed $id → $dest"
     return 0
@@ -637,7 +563,13 @@ install_plasmoids() {
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
   patch_window_title
-  install_window_buttons || warn "window-buttons failed — top-panel buttons need org.kde.appletdecoration"
+  # Pure QML — no org.kde.appletdecoration / cmake (works on Debian & PikaOS)
+  install_plasmoid_repo "$BUILD_DIR/panel-window-controls" "org.emancastillo.panelwindowcontrols" \
+    || warn "panel window controls failed"
+  # Optional Arch packaged decoration-themed buttons (not required)
+  if [[ "$DISTRO_FAMILY" == arch ]]; then
+    pkg_any plasma-applet-window-buttons || true
+  fi
 
   local src="$BUILD_DIR/blurredwallpaper"
   if [[ -d "$src/a2n.blur" ]]; then dest_cp "$src/a2n.blur" "$SHARE/plasma/wallpapers/a2n.blur"
