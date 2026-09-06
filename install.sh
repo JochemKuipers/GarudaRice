@@ -207,6 +207,8 @@ ensure_tooling() {
 
 # --- packages ---
 APT_UPDATED=0
+PKG_OK=()
+PKG_FAILED=()
 
 pkg() {
   case "$DISTRO_FAMILY" in
@@ -222,13 +224,68 @@ pkg() {
   esac
 }
 
-# Install each package on its own so one missing name doesn't abort the rest (apt).
-PKG_OK=()
-PKG_FAILED=()
+# Is this package/capability already on the system? (no package manager call)
+already() {
+  case "$1" in
+    fish) have fish ;;
+    starship) have starship ;;
+    bat) have bat ;;
+    eza|exa) have eza || have exa ;;
+    fzf) have fzf ;;
+    fastfetch) have fastfetch ;;
+    git) have git ;;
+    curl) have curl ;;
+    wget) have wget ;;
+    unzip) have unzip ;;
+    zip) have zip ;;
+    tar) have tar ;;
+    xz-utils) have xz || have xzcat ;;
+    konsole) have konsole ;;
+    plasma-workspace) have plasmashell ;;
+    kvantum|qt6-style-kvantum|qt6-style-kvantum-themes)
+      have kvantummanager || have kvantum ;;
+    fonts-fira-sans|ttf-fira-sans|mozilla-fira-sans-fonts)
+      fc-list 2>/dev/null | grep -qi 'Fira Sans' ;;
+    ttf-firacode-nerd)
+      fc-list 2>/dev/null | grep -qi 'FiraCode Nerd' ;;
+    cmake) have cmake ;;
+    make) have make ;;
+    g++|gcc|gcc-c++) have g++ || have c++ ;;
+    python|python3) have python3 ;;
+    gettext) have msgfmt ;;
+    extra-cmake-modules)
+      [[ -d /usr/share/ECM || -d /usr/share/cmake/ECM || -d /usr/share/cmake-*/Modules/ECM ]] ;;
+    qt6-base-dev|qt6-qtbase-devel)
+      [[ -d /usr/include/qt6/QtCore || -d /usr/include/x86_64-linux-gnu/qt6/QtCore ]] ;;
+    qt6-declarative-dev|qt6-qtdeclarative-devel)
+      [[ -d /usr/include/qt6/QtQml || -d /usr/include/x86_64-linux-gnu/qt6/QtQml ]] ;;
+    libplasma-dev)
+      [[ -e /usr/include/Plasma/Plasma || -e /usr/include/plasma6/Plasma/Plasma ]] ;;
+    *)
+      case "$DISTRO_FAMILY" in
+        arch) pacman -Q "$1" &>/dev/null ;;
+        fedora) rpm -q "$1" &>/dev/null ;;
+        debian) dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed' ;;
+        *) return 1 ;;
+      esac
+      ;;
+  esac
+}
 
+# Only invoke the package manager for what is actually missing.
 pkg_each() {
-  local p
+  local p missing=()
   for p in "$@"; do
+    if already "$p"; then
+      log "  = $p (already present)"
+      PKG_OK+=("$p")
+    else
+      missing+=("$p")
+    fi
+  done
+  [[ ${#missing[@]} -eq 0 ]] && return 0
+  log "Installing missing: ${missing[*]}"
+  for p in "${missing[@]}"; do
     if pkg "$p" 2>/dev/null; then
       log "  + $p"
       PKG_OK+=("$p")
@@ -239,9 +296,16 @@ pkg_each() {
   done
 }
 
-# Try alternatives until one installs (e.g. eza|exa, kvantum names).
 pkg_any() {
   local p
+  for p in "$@"; do
+    if already "$p"; then
+      log "  = $p (already present)"
+      PKG_OK+=("$p")
+      return 0
+    fi
+  done
+  log "Installing one of: $*"
   for p in "$@"; do
     if pkg "$p" 2>/dev/null; then
       log "  + $p"
@@ -257,7 +321,7 @@ pkg_any() {
 print_pkg_report() {
   echo
   if [[ ${#PKG_FAILED[@]} -eq 0 ]]; then
-    log "Package report: all requested packages installed OK"
+    log "Package report: nothing missing (or all installs OK)"
     return
   fi
   warn "Package report — failed / unavailable (${#PKG_FAILED[@]}):"
@@ -266,13 +330,13 @@ print_pkg_report() {
     warn "  - $p"
   done
   if [[ ${#PKG_OK[@]} -gt 0 ]]; then
-    log "Installed OK (${#PKG_OK[@]}): ${PKG_OK[*]}"
+    log "Present/installed (${#PKG_OK[@]}): ${PKG_OK[*]}"
   fi
   warn "Install continues. Install the failed ones manually if you need them."
 }
 
 install_nerd_font() {
-  fc-list 2>/dev/null | grep -qi 'FiraCode Nerd' && return 0
+  already ttf-firacode-nerd && return 0
   local dir
   [[ "$USER_INSTALL" == 1 ]] && dir="$REAL_HOME/.local/share/fonts/FiraCodeNerd" || dir="$PREFIX/share/fonts/FiraCodeNerd"
   log "Downloading FiraCode Nerd Font..."
@@ -292,7 +356,7 @@ install_starship() {
 install_packages() {
   PKG_OK=()
   PKG_FAILED=()
-  log "Packages ($DISTRO_FAMILY)..."
+  log "Packages ($DISTRO_FAMILY) — checking what's already installed..."
   case "$DISTRO_FAMILY" in
     arch)
       pkg_each fish starship bat fzf fastfetch \
@@ -310,18 +374,24 @@ install_packages() {
       install_nerd_font
       ;;
     debian)
-      pkg fish || die "apt could not install fish (enable universe/sid repos if needed)"
-      PKG_OK+=("fish")
+      if already fish; then
+        log "  = fish (already present)"
+        PKG_OK+=("fish")
+      else
+        pkg fish || die "apt could not install fish (enable universe/sid repos if needed)"
+        PKG_OK+=("fish")
+      fi
       pkg_each bat fzf fastfetch fonts-fira-sans \
         git curl wget unzip zip xz-utils \
         plasma-workspace konsole
       pkg_any eza exa
       pkg_any qt6-style-kvantum qt6-style-kvantum-themes kvantum
-      install_starship
+      have starship || install_starship
+      have starship && PKG_OK+=("starship") || PKG_FAILED+=("starship")
       install_nerd_font
       ;;
   esac
-  have fish || die "fish failed to install"
+  have fish || die "fish is required but not installed"
   have starship || install_starship
   have starship || PKG_FAILED+=("starship")
 }
@@ -404,40 +474,35 @@ fetch_all() {
 # --- plasmoids ---
 ensure_build_deps() {
   log "Checking build deps (plasmoids)..."
+  local need=()
   case "$DISTRO_FAMILY" in
     arch)
-      local need=()
       have cmake   || need+=(cmake)
       have make    || need+=(make)
       have g++     || need+=(gcc)
       have python3 || need+=(python)
-      [[ ${#need[@]} -gt 0 ]] && pkg "${need[@]}"
-      pkg_each extra-cmake-modules
       ;;
     fedora)
-      local need=()
       have cmake   || need+=(cmake)
       have make    || need+=(make)
       have g++     || need+=(gcc-c++)
       have python3 || need+=(python3)
-      [[ ${#need[@]} -gt 0 ]] && pkg "${need[@]}"
-      pkg_each extra-cmake-modules qt6-qtbase-devel qt6-qtdeclarative-devel
       ;;
     debian)
-      local need=()
       have cmake   || need+=(cmake)
       have make    || need+=(make)
       have g++     || need+=(g++)
       have python3 || need+=(python3)
-      if [[ ${#need[@]} -gt 0 ]]; then
-        log "Installing build deps: ${need[*]}"
-        pkg "${need[@]}" || die "Failed to install build deps: ${need[*]}"
-      fi
-      pkg_each extra-cmake-modules qt6-base-dev qt6-declarative-dev \
-        libplasma-dev gettext
       ;;
   esac
 
+  if [[ ${#need[@]} -eq 0 ]]; then
+    log "Build deps OK (already present)"
+    return
+  fi
+
+  log "Installing missing build deps: ${need[*]}"
+  pkg "${need[@]}" || die "Failed to install build deps: ${need[*]}"
   have cmake   || die "cmake still missing"
   have make    || die "make still missing"
   have python3 || die "python3 still missing"
