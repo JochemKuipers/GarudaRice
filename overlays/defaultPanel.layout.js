@@ -28,20 +28,9 @@ launcher.writeConfig("lengthFirstMargin", 7)
 launcher.currentConfigGroup = ["Shortcuts"]
 launcher.writeConfig("global", "Alt+F1")
 
-// Window buttons — pure QML (org.emancastillo.panelwindowcontrols); no appletdecoration
-var buttons = panel.addWidget("org.emancastillo.panelwindowcontrols")
-buttons.currentConfigGroup = ["General"]
-buttons.writeConfig("buttonSize", 22)
-buttons.writeConfig("spacing", 6)
-buttons.writeConfig("showMinimize", true)
-buttons.writeConfig("showMaximize", true)
-buttons.writeConfig("showClose", true)
-buttons.writeConfig("followKWinButtonOrder", true)
-buttons.writeConfig("dimInactive", true)
-buttons.writeConfig("enableAnimations", true)
-buttons.writeConfig("onlyShowForMaximized", false)
+// __WINDOW_BUTTONS__
 
-// Window Title - Using a fork for Plasma 6 (plasma6-applets-window-title https://aur.archlinux.org/packages/plasma6-applets-window-title)
+// Window Title - Using a fork for Plasma 6 (plasma6-applets-window-title)
 var title = panel.addWidget("org.kde.windowtitle")
 title.currentConfigGroup = ["General"]
 title.writeConfig("filterActivityInfo", false)

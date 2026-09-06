@@ -30,6 +30,6 @@ Needs Plasma 6, git, curl/wget, and pacman/dnf/apt. First run downloads Sweet, B
 
 `--update` pulls latest git sources, re-fetches the newest `garuda-dr460nized` tag, and reinstalls theme files. It does **not** reset panels — only add `--apply` when Garuda changes the dock/panel layout.
 
-`--apply` backs up to `~/.garuda-rice-backup-<timestamp>/` then applies the Dr460nized Global Theme layout.
+`--apply` backs up `~/.garuda-rice-backup-<timestamp>/` (including your current panel config), then runs `plasma-apply-lookandfeel -a Dr460nized --resetLayout` so panels/dock are rebuilt with the Dr460nized applets — not left on stale widgets.
 
 Credits: Garuda Linux, EliverLara/Sweet, and the plasmoid authors. This repo is only a portable installer.

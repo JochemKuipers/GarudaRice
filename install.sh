@@ -33,6 +33,7 @@ EOF
 
 DO_APPLY=0 DO_UPDATE=0 SHELL_ONLY=0 USER_INSTALL=0 ASSUME_YES=0
 SHELL_CHOICE=fish PREFIX=/usr/local
+WINDOW_BUTTONS_MODE=fallback
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -285,6 +286,12 @@ already() {
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
+    libkdecorations3-dev|libkdecorations2-dev)
+      [[ -e /usr/lib/*/cmake/KDecoration3/KDecoration3Config.cmake ]] \
+        || [[ -e /usr/lib/x86_64-linux-gnu/cmake/KDecoration3/KDecoration3Config.cmake ]] \
+        || [[ -e /usr/lib/*/cmake/KDecoration2/KDecoration2Config.cmake ]] \
+        || [[ -d /usr/include/KDecoration3 ]] \
+        || [[ -d /usr/include/KDecoration2 ]] ;;
     cmake) have cmake ;;
     make) have make ;;
     g++|gcc|gcc-c++) have g++ || have c++ ;;
@@ -492,7 +499,8 @@ fetch_all() {
   clone candy-icons "https://github.com/EliverLara/candy-icons.git"
   clone beautyline "https://gitlab.com/garuda-linux/themes-and-settings/artwork/beautyline.git"
   clone panel-colorizer "https://github.com/luisbocanegra/plasma-panel-colorizer.git"
-  # Pure-QML window buttons (no appletdecoration / cmake) — works on Debian/PikaOS
+  # Aurorae-styled buttons (needs cmake + appletdecoration); pure-QML fallback also cloned
+  clone window-buttons "https://github.com/moodyhunter/applet-window-buttons6.git"
   clone panel-window-controls "https://github.com/EmanCastillo/panelwindowcontrols.git"
   clone window-title "https://github.com/dhruv8sh/plasma6-window-title-applet.git"
   clone blurredwallpaper "https://github.com/bouteillerAlan/blurredwallpaper.git"
@@ -545,19 +553,126 @@ ensure_build_deps() {
   log "Build deps OK"
 }
 
+appletdecoration_present() {
+  [[ -e /usr/lib/qt6/qml/org/kde/appletdecoration/qmldir ]] \
+    || [[ -e /usr/lib64/qt6/qml/org/kde/appletdecoration/qmldir ]] \
+    || compgen -G '/usr/lib/*/qt6/qml/org/kde/appletdecoration/qmldir' >/dev/null 2>&1
+}
+
+windowbuttons_usable() {
+  appletdecoration_present || return 1
+  [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]] \
+    || [[ -d "$(rice_share)/plasma/plasmoids/org.kde.windowbuttons" ]]
+}
+
+ensure_window_buttons_deps() {
+  log "Checking window-buttons (appletdecoration) build deps..."
+  case "$DISTRO_FAMILY" in
+    arch)
+      pkg_each extra-cmake-modules gettext \
+        kdecoration kwin libplasma \
+        kcoreaddons kconfig kdeclarative kpackage ksvg ki18n \
+        kservice kconfigwidgets kcmutils qt6-base qt6-declarative
+      ;;
+    fedora)
+      pkg_each extra-cmake-modules gettext \
+        qt6-qtbase-devel qt6-qtdeclarative-devel \
+        kf6-kcoreaddons-devel kf6-kconfig-devel kf6-kdeclarative-devel \
+        kf6-kpackage-devel kf6-ksvg-devel kf6-ki18n-devel \
+        kf6-kservice-devel kf6-kconfigwidgets-devel kf6-kcmutils-devel \
+        kdecoration-devel kwin-devel libplasma-devel
+      ;;
+    debian)
+      # PikaOS/Debian Plasma 6.7 ships libkdecorations3; need matching -dev for cmake
+      pkg_each extra-cmake-modules gettext \
+        qt6-base-dev qt6-declarative-dev \
+        libkf6coreaddons-dev libkf6config-dev libkf6declarative-dev \
+        libkf6package-dev libkf6svg-dev libkf6i18n-dev \
+        libkf6service-dev libkf6configwidgets-dev libkf6kcmutils-dev \
+        libkwin-dev libplasma-dev \
+        libkdecorations3-dev
+      ;;
+  esac
+}
+
+# Prefer Sweet/Aurorae window buttons (Garuda look). Falls back to pure QML.
+install_window_buttons() {
+  WINDOW_BUTTONS_MODE=fallback
+
+  if windowbuttons_usable; then
+    log "  = org.kde.windowbuttons + appletdecoration (already usable)"
+    WINDOW_BUTTONS_MODE=aurorae
+    return 0
+  fi
+
+  if pkg_any plasma-applet-window-buttons; then
+    if windowbuttons_usable; then
+      WINDOW_BUTTONS_MODE=aurorae
+      return 0
+    fi
+  fi
+
+  ensure_window_buttons_deps
+  local src="$BUILD_DIR/window-buttons" logf="$BUILD_DIR/window-buttons-build.log"
+  [[ -f "$src/CMakeLists.txt" ]] || { warn "window-buttons sources missing"; return 1; }
+
+  log "  building org.kde.windowbuttons + appletdecoration → /usr (log: $logf)"
+  dest_rm "$src/build"
+  mkdir -p "$src/build"
+  if (
+    cd "$src/build"
+    cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
+      -DKDE_INSTALL_USE_QT_SYS_PATHS=ON -Wno-dev .. \
+      && cmake --build . -j"$(nproc)" \
+      && as_root cmake --install .
+  ) >"$logf" 2>&1; then
+    if windowbuttons_usable; then
+      log "  installed Sweet/Aurorae window buttons"
+      WINDOW_BUTTONS_MODE=aurorae
+      return 0
+    fi
+  fi
+  warn "Aurorae window-buttons build failed — using pure-QML fallback (see $logf)"
+  return 1
+}
+
+patch_panel_window_controls() {
+  local base="$1" wb main
+  wb="$base/contents/ui/WindowButton.qml"
+  main="$base/contents/ui/main.qml"
+  [[ -f "$wb" ]] || return 0
+  if [[ -f "$ROOT/overlays/panelwindowcontrols/WindowButton.qml" ]]; then
+    if [[ -w "$wb" ]]; then
+      install -m 0644 "$ROOT/overlays/panelwindowcontrols/WindowButton.qml" "$wb"
+    else
+      as_root install -m 0644 "$ROOT/overlays/panelwindowcontrols/WindowButton.qml" "$wb"
+    fi
+  fi
+  if [[ -f "$main" ]]; then
+    if [[ -w "$main" ]]; then
+      sed -i 's|configuredButtonSize \* visibleButtonOrder.length + leadingGap + trailingGap|configuredButtonSize * visibleButtonOrder.length + configuredSpacing * Math.max(0, visibleButtonOrder.length - 1) + leadingGap + trailingGap + configuredSpacing|g' "$main"
+    else
+      as_root sed -i 's|configuredButtonSize \* visibleButtonOrder.length + leadingGap + trailingGap|configuredButtonSize * visibleButtonOrder.length + configuredSpacing * Math.max(0, visibleButtonOrder.length - 1) + leadingGap + trailingGap + configuredSpacing|g' "$main"
+    fi
+  fi
+  log "  patched panelwindowcontrols sizing for thin panels"
+}
+
 install_plasmoid_repo() {
   local src="$1" id="$2"
   local SHARE dest
   SHARE="$(rice_share)"
   dest="$SHARE/plasma/plasmoids/$id"
 
-  # Pure QML / package tree — copy into our prefix (never use upstream install.sh as root → /root/.local)
   if [[ -f "$src/metadata.json" || -f "$src/metadata.desktop" ]]; then
     dest_cp "$src" "$dest"
     log "  installed $id → $dest"
     return 0
   fi
   if [[ -d "$src/package" ]] && [[ -f "$src/package/metadata.json" || -f "$src/package/metadata.desktop" ]]; then
+    if [[ -f "$src/CMakeLists.txt" && -d "$src/libappletdecoration" ]]; then
+      return 1
+    fi
     dest_cp "$src/package" "$dest"
     log "  installed $id → $dest"
     return 0
@@ -567,7 +682,6 @@ install_plasmoid_repo() {
   return 1
 }
 
-# Dead import on Plasma ≥6.6 where private.appmenu is no longer a public QML module
 patch_window_title() {
   local f candidates=(
     "$(rice_share)/plasma/plasmoids/org.kde.windowtitle/contents/ui/main.qml"
@@ -590,26 +704,33 @@ patch_window_title() {
 
 install_plasmoids() {
   local SHARE; SHARE="$(rice_share)"
+  WINDOW_BUTTONS_MODE=fallback
   ensure_build_deps
   log "Plasmoids..."
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
   patch_window_title
 
-  # Drop broken QML-only org.kde.windowbuttons (needs appletdecoration — not shipped)
-  for stale in \
-    "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \
-    "$REAL_HOME/.local/share/plasma/plasmoids/org.kde.windowbuttons" \
-    /usr/local/share/plasma/plasmoids/org.kde.windowbuttons
-  do
-    [[ -e "$stale" ]] || continue
-    log "  removing broken leftover $stale"
-    dest_rm "$stale"
-  done
+  if ! appletdecoration_present; then
+    for stale in \
+      "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \
+      "$REAL_HOME/.local/share/plasma/plasmoids/org.kde.windowbuttons" \
+      /usr/local/share/plasma/plasmoids/org.kde.windowbuttons
+    do
+      [[ -e "$stale" ]] || continue
+      log "  removing broken leftover $stale"
+      dest_rm "$stale"
+    done
+  fi
 
-  # Pure QML window buttons — no org.kde.appletdecoration
-  install_plasmoid_repo "$BUILD_DIR/panel-window-controls" "org.emancastillo.panelwindowcontrols" \
-    || warn "panel window controls failed"
+  install_window_buttons || true
+
+  if install_plasmoid_repo "$BUILD_DIR/panel-window-controls" "org.emancastillo.panelwindowcontrols"; then
+    patch_panel_window_controls "$SHARE/plasma/plasmoids/org.emancastillo.panelwindowcontrols"
+  else
+    warn "panel window controls fallback failed"
+  fi
+  log "  window buttons mode: $WINDOW_BUTTONS_MODE"
 
   local src="$BUILD_DIR/blurredwallpaper"
   if [[ -d "$src/a2n.blur" ]]; then dest_cp "$src/a2n.blur" "$SHARE/plasma/wallpapers/a2n.blur"
@@ -692,17 +813,30 @@ install_themes() {
     [[ -d "$c/plasma/plasmoids/luisbocanegra.panel.colorizer" ]] && {
       colorizer_root="$c/plasma/plasmoids/luisbocanegra.panel.colorizer"; break; }
   done
+
+  # Re-detect in case plasmoids ran in a prior invocation
+  if windowbuttons_usable; then WINDOW_BUTTONS_MODE=aurorae; fi
+  local buttons_inc="$ROOT/overlays/panel-buttons-fallback.js.inc"
+  [[ "$WINDOW_BUTTONS_MODE" == aurorae ]] \
+    && buttons_inc="$ROOT/overlays/panel-buttons-aurorae.js.inc"
+  log "Panel buttons overlay: $WINDOW_BUTTONS_MODE ($buttons_inc)"
+
   for layout in defaultDock defaultPanel; do
     [[ -f "$ROOT/overlays/${layout}.layout.js" ]] || continue
     tmp="$(mktemp)"
     sed "s|__COLORIZER_ROOT__|${colorizer_root}|g" "$ROOT/overlays/${layout}.layout.js" >"$tmp"
-    if [[ "$layout" == defaultPanel ]] && ! grep -q 'org.emancastillo.panelwindowcontrols' "$tmp"; then
-      warn "panel overlay missing panelwindowcontrols — check overlays/defaultPanel.layout.js"
-    fi
-    # Ensure we never reintroduce the broken appletdecoration-based applet
-    if grep -q 'org.kde.windowbuttons' "$tmp"; then
-      warn "panel overlay still references org.kde.windowbuttons; stripping"
-      sed -i '/org\.kde\.windowbuttons/,/^$/d' "$tmp" || true
+    if [[ "$layout" == defaultPanel ]]; then
+      # Inject aurorae or fallback snippet at __WINDOW_BUTTONS__
+      local merged; merged="$(mktemp)"
+      awk -v inc="$buttons_inc" '
+        /__WINDOW_BUTTONS__/ {
+          while ((getline line < inc) > 0) print line
+          close(inc)
+          next
+        }
+        { print }
+      ' "$tmp" >"$merged"
+      mv "$merged" "$tmp"
     fi
     dest_install "$tmp" \
       "$SHARE/plasma/layout-templates/org.garuda.desktop.${layout}/contents/layout.js"
@@ -853,11 +987,15 @@ EOF
 
 # --- apply ---
 apply_rice() {
-  confirm "RESET Plasma panels/dock/wallpaper to Dr460nized?" || die "Cancelled"
+  confirm "RESET Plasma panels/dock/wallpaper to Dr460nized (rebuilds layout)?" || die "Cancelled"
   local SHARE skel f shell_path
   SHARE="$(rice_share)"; skel="$ROOT/configs/skel"
   mkdir -p "$BACKUP_DIR"
   log "Backup → $BACKUP_DIR"
+
+  # Panel/desktop layout lives here — must be backed up before --resetLayout
+  backup "$REAL_HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
+  backup "$REAL_HOME/.config/plasmashellrc"
 
   for f in \
     .config/kdeglobals .config/kwinrc .config/kcminputrc .config/konsolerc \
@@ -902,12 +1040,13 @@ apply_rice() {
   }
   apply_kvantum_config
 
-  log "Applying Dr460nized (resets panels/dock)..."
+  # --resetLayout is required: without it Plasma keeps existing panels/applets
+  log "Applying Dr460nized + resetting panel layout..."
   if have plasma-apply-lookandfeel; then
-    plasma-apply-lookandfeel -a Dr460nized \
-      || warn "apply failed — set Global Theme → Dr460nized in System Settings"
+    plasma-apply-lookandfeel -a Dr460nized --resetLayout \
+      || warn "apply failed — set Global Theme → Dr460nized in System Settings (and reset layout)"
   elif have lookandfeeltool; then
-    lookandfeeltool -a Dr460nized || warn "lookandfeeltool failed"
+    lookandfeeltool -a Dr460nized --resetLayout || warn "lookandfeeltool failed"
   else
     warn "No look-and-feel tool; apply Dr460nized in System Settings"
   fi
