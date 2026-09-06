@@ -18,20 +18,26 @@ usage() {
   cat <<'EOF'
 Usage: ./install.sh [options]
   --apply         Apply Global Theme (resets panels/dock/wallpaper)
+  --update        Refresh upstream themes/plasmoids (keeps your layout)
   --shell-only    Only fish/bash + starship + Konsole
   --user          Install under ~/.local
   --yes           Skip confirms
   --shell fish|bash
   -h, --help
+
+Update tip: ./install.sh --update
+  Re-downloads/pulls sources and overwrites theme files.
+  Does NOT reset panels — add --apply only if Garuda changed the layout.
 EOF
 }
 
-DO_APPLY=0 SHELL_ONLY=0 USER_INSTALL=0 ASSUME_YES=0
+DO_APPLY=0 DO_UPDATE=0 SHELL_ONLY=0 USER_INSTALL=0 ASSUME_YES=0
 SHELL_CHOICE=fish PREFIX=/usr/local
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --apply) DO_APPLY=1 ;;
+    --update) DO_UPDATE=1 ;;
     --shell-only) SHELL_ONLY=1 ;;
     --user) USER_INSTALL=1; PREFIX="$HOME/.local" ;;
     --yes|-y) ASSUME_YES=1 ;;
@@ -187,7 +193,22 @@ install_packages() {
 clone() {
   local name="$1" url="$2" ref="${3:-}"
   local dir="$BUILD_DIR/$name"
-  [[ -d "$dir/.git" ]] && { log "Have $name"; return; }
+  if [[ -d "$dir/.git" ]]; then
+    if [[ "$DO_UPDATE" == 1 ]]; then
+      log "Update $name..."
+      if [[ -n "$ref" ]]; then
+        git -C "$dir" fetch --depth 1 origin "$ref"
+        git -C "$dir" checkout -B "$ref" FETCH_HEAD 2>/dev/null \
+          || git -C "$dir" reset --hard FETCH_HEAD
+      else
+        git -C "$dir" pull --ff-only 2>/dev/null \
+          || { git -C "$dir" fetch --depth 1 origin; git -C "$dir" reset --hard FETCH_HEAD; }
+      fi
+      return
+    fi
+    log "Have $name"
+    return
+  fi
   log "Clone $name..."
   rm -rf "$dir"
   if [[ -n "$ref" ]]; then
@@ -197,12 +218,27 @@ clone() {
   fi
 }
 
+resolve_dr460nized_tag() {
+  [[ "$DO_UPDATE" == 1 ]] || return 0
+  local latest
+  latest="$(
+    curl -fsSL \
+      'https://gitlab.com/api/v4/projects/garuda-linux%2Fthemes-and-settings%2Fsettings%2Fgaruda-dr460nized/repository/tags?per_page=1' \
+      2>/dev/null | grep -oE '"name":"[^"]+"' | head -1 | cut -d'"' -f4 || true
+  )"
+  if [[ -n "$latest" ]]; then
+    log "Latest garuda-dr460nized tag: $latest (was $DR460NIZED_TAG)"
+    DR460NIZED_TAG="$latest"
+  fi
+}
+
 fetch_all() {
   have git || die "git required"
   mkdir -p "$BUILD_DIR"
+  resolve_dr460nized_tag
 
   local tarball="$BUILD_DIR/garuda-dr460nized.tar.gz" src="$BUILD_DIR/garuda-dr460nized"
-  if [[ ! -d "$src/.fetched" ]]; then
+  if [[ "$DO_UPDATE" == 1 || ! -d "$src/.fetched" ]]; then
     log "Download garuda-dr460nized $DR460NIZED_TAG..."
     rm -rf "$src"; mkdir -p "$src"
     download "https://gitlab.com/garuda-linux/themes-and-settings/settings/garuda-dr460nized/-/archive/${DR460NIZED_TAG}/garuda-dr460nized-${DR460NIZED_TAG}.tar.gz" "$tarball"
@@ -218,7 +254,7 @@ fetch_all() {
   clone window-title "https://github.com/dhruv8sh/plasma6-window-title-applet.git"
   clone blurredwallpaper "https://github.com/bouteillerAlan/blurredwallpaper.git"
 
-  if [[ ! -d "$BUILD_DIR/sweet-gtk-dark/.fetched" ]]; then
+  if [[ "$DO_UPDATE" == 1 || ! -d "$BUILD_DIR/sweet-gtk-dark/.fetched" ]]; then
     log "Download Sweet-Dark GTK..."
     download "$SWEET_GTK_RELEASE" "$BUILD_DIR/Sweet-Dark.tar.xz"
     rm -rf "$BUILD_DIR/sweet-gtk-dark"; mkdir -p "$BUILD_DIR/sweet-gtk-dark"
@@ -503,6 +539,17 @@ if [[ "$SHELL_ONLY" == 1 ]]; then
   install_packages
   install_shell
   log "Shell-only finished."
+  exit 0
+fi
+
+if [[ "$DO_UPDATE" == 1 ]]; then
+  # Refresh assets only — no package churn, no shell rewrite, no layout reset
+  fetch_all
+  install_plasmoids
+  install_themes
+  if [[ "$DO_APPLY" == 1 ]]; then apply_rice
+  else log "Updated themes/plasmoids. Layout untouched (use --apply to reset panels)."; fi
+  log "Done."
   exit 0
 fi
 
