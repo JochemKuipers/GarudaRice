@@ -342,21 +342,85 @@ fetch_all() {
 }
 
 # --- plasmoids ---
+ensure_build_deps() {
+  log "Checking build deps (plasmoids)..."
+  case "$DISTRO_FAMILY" in
+    arch)
+      local need=()
+      have cmake   || need+=(cmake)
+      have make    || need+=(make)
+      have g++     || need+=(gcc)
+      have python3 || need+=(python)
+      [[ ${#need[@]} -gt 0 ]] && pkg "${need[@]}"
+      pkg_each extra-cmake-modules
+      ;;
+    fedora)
+      local need=()
+      have cmake   || need+=(cmake)
+      have make    || need+=(make)
+      have g++     || need+=(gcc-c++)
+      have python3 || need+=(python3)
+      [[ ${#need[@]} -gt 0 ]] && pkg "${need[@]}"
+      pkg_each extra-cmake-modules qt6-qtbase-devel qt6-qtdeclarative-devel
+      ;;
+    debian)
+      local need=()
+      have cmake   || need+=(cmake)
+      have make    || need+=(make)
+      have g++     || need+=(g++)
+      have python3 || need+=(python3)
+      if [[ ${#need[@]} -gt 0 ]]; then
+        log "Installing build deps: ${need[*]}"
+        pkg "${need[@]}" || die "Failed to install build deps: ${need[*]}"
+      fi
+      pkg_each extra-cmake-modules qt6-base-dev qt6-declarative-dev \
+        libplasma-dev gettext
+      ;;
+  esac
+
+  have cmake   || die "cmake still missing"
+  have make    || die "make still missing"
+  have python3 || die "python3 still missing"
+  log "Build deps OK"
+}
+
 install_plasmoid_repo() {
   local src="$1" id="$2"
   local SHARE dest
   SHARE="$(rice_share)"
   dest="$SHARE/plasma/plasmoids/$id"
-  if [[ -f "$src/install.sh" ]]; then
-    (cd "$src" && if [[ "$USER_INSTALL" == 1 ]]; then bash ./install.sh; else as_root bash ./install.sh; fi) && return 0
+
+  # Copy into our prefix — upstream install.sh uses $HOME/.local (/root/.local under sudo).
+  if [[ -f "$src/metadata.json" || -f "$src/metadata.desktop" ]]; then
+    dest_cp "$src" "$dest"
+    log "  installed $id → $dest"
+    return 0
   fi
-  if [[ -f "$src/metadata.json" || -f "$src/metadata.desktop" ]]; then dest_cp "$src" "$dest"; return 0; fi
-  if [[ -d "$src/package" ]]; then dest_cp "$src/package" "$dest"; return 0; fi
-  warn "No plasmoid package in $src"; return 1
+  if [[ -d "$src/package" ]] && [[ -f "$src/package/metadata.json" || -f "$src/package/metadata.desktop" ]]; then
+    dest_cp "$src/package" "$dest"
+    log "  installed $id → $dest"
+    return 0
+  fi
+
+  if [[ -f "$src/install.sh" ]]; then
+    log "  $id via install.sh (XDG_DATA_HOME=$SHARE)..."
+    (
+      cd "$src"
+      if [[ "$USER_INSTALL" == 1 ]]; then
+        env XDG_DATA_HOME="$SHARE" bash ./install.sh
+      else
+        as_root env XDG_DATA_HOME="$SHARE" HOME=/tmp bash ./install.sh
+      fi
+    ) && return 0
+  fi
+
+  warn "No plasmoid package in $src"
+  return 1
 }
 
 install_plasmoids() {
   local SHARE; SHARE="$(rice_share)"
+  ensure_build_deps
   log "Plasmoids..."
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
