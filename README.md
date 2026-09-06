@@ -2,6 +2,8 @@
 
 ## Quick install
 
+Run as your **normal user** (not root / not `sudo ./install.sh`). Sudo is prompted only when needed.
+
 ```bash
 git clone --depth 1 https://github.com/JochemKuipers/GarudaRice.git && cd GarudaRice && ./install.sh
 ```

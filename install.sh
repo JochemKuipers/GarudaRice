@@ -39,7 +39,7 @@ while [[ $# -gt 0 ]]; do
     --apply) DO_APPLY=1 ;;
     --update) DO_UPDATE=1 ;;
     --shell-only) SHELL_ONLY=1 ;;
-    --user) USER_INSTALL=1; PREFIX="$HOME/.local" ;;
+    --user) USER_INSTALL=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
     --shell) shift; SHELL_CHOICE="${1:-}"
       [[ "$SHELL_CHOICE" == fish || "$SHELL_CHOICE" == bash ]] || die "--shell must be fish or bash" ;;
@@ -49,11 +49,26 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# Never run the whole script as root — backups/configs would land in /root.
+if [[ "$(id -u)" -eq 0 ]]; then
+  if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+    die "Do not use sudo/root. Run as $SUDO_USER without sudo:
+  ./install.sh …
+(sudo is prompted only for packages and /usr/local writes)"
+  fi
+  die "Do not run as root. Run as your normal desktop user; sudo is prompted when needed."
+fi
+
+REAL_USER="$(id -un)"
+REAL_HOME="${HOME:-/home/$REAL_USER}"
+[[ -d "$REAL_HOME" ]] || die "Cannot resolve home for $REAL_USER"
+
+[[ "$USER_INSTALL" == 1 ]] && PREFIX="$REAL_HOME/.local"
 BUILD_DIR="$ROOT/build"
-BACKUP_DIR="$HOME/.garuda-rice-backup-$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="$REAL_HOME/.garuda-rice-backup-$(date +%Y%m%d-%H%M%S)"
 
 rice_share() {
-  if [[ "$USER_INSTALL" == 1 ]]; then echo "$HOME/.local/share"
+  if [[ "$USER_INSTALL" == 1 ]]; then echo "$REAL_HOME/.local/share"
   else echo "$PREFIX/share"; fi
 }
 
@@ -62,10 +77,10 @@ confirm() {
   printf '%s [y/N] ' "$1"; read -r a; [[ "$a" =~ ^[Yy]$ ]]
 }
 
+# Escalate only for this command — never keep a root shell.
 as_root() {
-  [[ "$(id -u)" -eq 0 ]] && { "$@"; return; }
-  have sudo || die "Need sudo for $PREFIX"
-  sudo "$@"
+  have sudo || die "Need sudo for privileged installs (packages / $PREFIX)"
+  sudo -H "$@"
 }
 
 dest_mkdir() { mkdir -p "$1" 2>/dev/null || as_root mkdir -p "$1"; }
@@ -90,7 +105,7 @@ dest_rm() {
 
 backup() {
   local src="$1"
-  local dest="$BACKUP_DIR/${src#"$HOME"/}"
+  local dest="$BACKUP_DIR/${src#"$REAL_HOME"/}"
   [[ -e "$src" || -L "$src" ]] || return 0
   mkdir -p "$(dirname "$dest")"; cp -a "$src" "$dest"
 }
@@ -259,7 +274,7 @@ print_pkg_report() {
 install_nerd_font() {
   fc-list 2>/dev/null | grep -qi 'FiraCode Nerd' && return 0
   local dir
-  [[ "$USER_INSTALL" == 1 ]] && dir="$HOME/.local/share/fonts/FiraCodeNerd" || dir="$PREFIX/share/fonts/FiraCodeNerd"
+  [[ "$USER_INSTALL" == 1 ]] && dir="$REAL_HOME/.local/share/fonts/FiraCodeNerd" || dir="$PREFIX/share/fonts/FiraCodeNerd"
   log "Downloading FiraCode Nerd Font..."
   download "https://github.com/ryanoasis/nerd-fonts/releases/download/v3.3.0/FiraCode.zip" "$BUILD_DIR/FiraCode.zip"
   dest_mkdir "$dir"
@@ -486,7 +501,7 @@ install_plasmoids() {
   local preset_dest=
   for base in \
     "$SHARE/plasma/plasmoids/luisbocanegra.panel.colorizer" \
-    "$HOME/.local/share/plasma/plasmoids/luisbocanegra.panel.colorizer" \
+    "$REAL_HOME/.local/share/plasma/plasmoids/luisbocanegra.panel.colorizer" \
     "/usr/local/share/plasma/plasmoids/luisbocanegra.panel.colorizer" \
     "/usr/share/plasma/plasmoids/luisbocanegra.panel.colorizer"
   do
@@ -628,47 +643,47 @@ install_shell() {
   tmp="$(mktemp)"; printf '%s\n' "$DISTRO_FAMILY" >"$tmp"
   dest_install "$tmp" "$RICE/distro/current"; rm -f "$tmp"
 
-  backup "$HOME/.config/starship.toml"
-  mkdir -p "$HOME/.config"
-  install -m 0644 "$ROOT/configs/shell/common/starship.toml" "$HOME/.config/starship.toml"
+  backup "$REAL_HOME/.config/starship.toml"
+  mkdir -p "$REAL_HOME/.config"
+  install -m 0644 "$ROOT/configs/shell/common/starship.toml" "$REAL_HOME/.config/starship.toml"
 
-  backup "$HOME/.config/fish/config.fish"
-  mkdir -p "$HOME/.config/fish"
-  cat >"$HOME/.config/fish/config.fish" <<EOF
+  backup "$REAL_HOME/.config/fish/config.fish"
+  mkdir -p "$REAL_HOME/.config/fish"
+  cat >"$REAL_HOME/.config/fish/config.fish" <<EOF
 # GarudaRice — customize below; defaults: $RICE/fish/config.fish
 source $RICE/fish/config.fish
 __garuda_rice_fastfetch
 EOF
 
-  cat >"$HOME/.bashrc_garuda_rice" <<EOF
+  cat >"$REAL_HOME/.bashrc_garuda_rice" <<EOF
 [[ -f $RICE/bash/bashrc ]] && source $RICE/bash/bashrc
 EOF
-  backup "$HOME/.bashrc"
-  if [[ -f "$HOME/.bashrc" ]]; then
-    grep -q bashrc_garuda_rice "$HOME/.bashrc" 2>/dev/null \
-      || printf '\n# GarudaRice\n[[ -f ~/.bashrc_garuda_rice ]] && source ~/.bashrc_garuda_rice\n' >>"$HOME/.bashrc"
+  backup "$REAL_HOME/.bashrc"
+  if [[ -f "$REAL_HOME/.bashrc" ]]; then
+    grep -q bashrc_garuda_rice "$REAL_HOME/.bashrc" 2>/dev/null \
+      || printf '\n# GarudaRice\n[[ -f ~/.bashrc_garuda_rice ]] && source ~/.bashrc_garuda_rice\n' >>"$REAL_HOME/.bashrc"
   else
-    printf '# GarudaRice\n[[ -f ~/.bashrc_garuda_rice ]] && source ~/.bashrc_garuda_rice\n' >"$HOME/.bashrc"
+    printf '# GarudaRice\n[[ -f ~/.bashrc_garuda_rice ]] && source ~/.bashrc_garuda_rice\n' >"$REAL_HOME/.bashrc"
   fi
 
   case "$SHELL_CHOICE" in
     bash) shell_path="$(command -v bash || echo /bin/bash)" ;;
     *)    shell_path="$(command -v fish || echo /usr/bin/fish)" ;;
   esac
-  backup "$HOME/.local/share/konsole/Garuda.profile"
-  mkdir -p "$HOME/.local/share/konsole"
+  backup "$REAL_HOME/.local/share/konsole/Garuda.profile"
+  mkdir -p "$REAL_HOME/.local/share/konsole"
   tmp="$(mktemp)"
   sed "s|^Command=.*|Command=${shell_path}|" "$ROOT/configs/konsole/Garuda.profile" >"$tmp"
-  install -m 0644 "$tmp" "$HOME/.local/share/konsole/Garuda.profile"
+  install -m 0644 "$tmp" "$REAL_HOME/.local/share/konsole/Garuda.profile"
   rm -f "$tmp"
   dest_mkdir "$SHARE/konsole"
   [[ -f "$ROOT/configs/konsole/Sweet.colorscheme" ]] \
     && dest_install "$ROOT/configs/konsole/Sweet.colorscheme" "$SHARE/konsole/Sweet.colorscheme"
-  dest_install "$HOME/.local/share/konsole/Garuda.profile" "$SHARE/konsole/Garuda.profile" 2>/dev/null || true
+  dest_install "$REAL_HOME/.local/share/konsole/Garuda.profile" "$SHARE/konsole/Garuda.profile" 2>/dev/null || true
 
-  backup "$HOME/.config/konsolerc"
-  install -m 0644 "$ROOT/configs/skel/.config/konsolerc" "$HOME/.config/konsolerc"
-  log "Shell OK (konsole → $SHELL_CHOICE)"
+  backup "$REAL_HOME/.config/konsolerc"
+  install -m 0644 "$ROOT/configs/skel/.config/konsolerc" "$REAL_HOME/.config/konsolerc"
+  log "Shell OK (konsole → $SHELL_CHOICE) as $REAL_USER"
 }
 
 # --- apply ---
@@ -687,13 +702,13 @@ apply_rice() {
     .config/gtk-4.0/settings.ini .config/gtk-4.0/gtk.css .config/gtk-4.0/colors.css \
     .icons/default/index.theme .local/share/konsole/Garuda.profile
   do
-    backup "$HOME/$f"
+    backup "$REAL_HOME/$f"
     [[ -f "$skel/$f" ]] || continue
-    mkdir -p "$(dirname "$HOME/$f")"
+    mkdir -p "$(dirname "$REAL_HOME/$f")"
     if [[ "$f" == .config/kscreenlockerrc ]]; then
-      sed "s|/usr/share/wallpapers|${SHARE}/wallpapers|g" "$skel/$f" >"$HOME/$f"
+      sed "s|/usr/share/wallpapers|${SHARE}/wallpapers|g" "$skel/$f" >"$REAL_HOME/$f"
     else
-      install -m 0644 "$skel/$f" "$HOME/$f"
+      install -m 0644 "$skel/$f" "$REAL_HOME/$f"
     fi
   done
 
@@ -701,8 +716,8 @@ apply_rice() {
     bash) shell_path="$(command -v bash || echo /bin/bash)" ;;
     *)    shell_path="$(command -v fish || echo /usr/bin/fish)" ;;
   esac
-  [[ -f "$HOME/.local/share/konsole/Garuda.profile" ]] \
-    && sed -i "s|^Command=.*|Command=${shell_path}|" "$HOME/.local/share/konsole/Garuda.profile"
+  [[ -f "$REAL_HOME/.local/share/konsole/Garuda.profile" ]] \
+    && sed -i "s|^Command=.*|Command=${shell_path}|" "$REAL_HOME/.local/share/konsole/Garuda.profile"
 
   patch_aurorae
   log "Applying Dr460nized..."

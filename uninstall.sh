@@ -5,6 +5,10 @@ set -euo pipefail
 log()  { printf '==> %s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
+if [[ "$(id -u)" -eq 0 ]]; then
+  die "Do not run as root/sudo. Run as your user; sudo is prompted only to delete system files."
+fi
+
 USER_INSTALL=0 PREFIX=/usr/local ASSUME_YES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,7 +31,7 @@ fi
 rm_path() {
   [[ -e "$1" || -L "$1" ]] || return 0
   if [[ -w "$(dirname "$1")" ]]; then rm -rf "$1"
-  elif command -v sudo >/dev/null; then sudo rm -rf "$1"
+  elif command -v sudo >/dev/null; then sudo -H rm -rf "$1"
   else die "Need sudo to remove $1"; fi
   log "Removed $1"
 }
