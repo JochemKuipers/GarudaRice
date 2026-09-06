@@ -109,7 +109,7 @@ detect_distro() {
   case "${ID:-}" in
     arch|endeavouros|manjaro|cachyos|garuda|artix) DISTRO_FAMILY=arch ;;
     fedora|rhel|centos|rocky|almalinux|nobara) DISTRO_FAMILY=fedora ;;
-    debian|ubuntu|linuxmint|pop|elementary|zorin|neon|kali) DISTRO_FAMILY=debian ;;
+    debian|ubuntu|linuxmint|pop|elementary|zorin|neon|kali|pika|pikaos) DISTRO_FAMILY=debian ;;
     *)
       case " ${ID_LIKE:-} " in
         *" arch "*|*"archlinux"*) DISTRO_FAMILY=arch ;;
@@ -123,14 +123,23 @@ detect_distro() {
 
 require_plasma6() {
   have plasmashell || die "plasmashell not found — install Plasma 6 first"
-  if [[ -d /usr/lib/qt6/plugins/plasma || -d /usr/lib64/qt6/plugins/plasma ]]; then
+
+  # Never run plasmashell --version here: it can hang forever in VMs / no-display.
+  if [[ -d /usr/lib/qt6/plugins/plasma || -d /usr/lib64/qt6/plugins/plasma \
+     || -d /usr/lib/x86_64-linux-gnu/qt6/plugins/plasma ]]; then
     log "Plasma 6 OK"
     return
   fi
-  local ver
-  ver="$(QT_QPA_PLATFORM=offscreen plasmashell --version 2>/dev/null | grep -oE '[0-9]+' | head -1 || true)"
-  [[ "${ver:-0}" -ge 6 ]] || die "Plasma 6 required"
-  log "Plasma $ver OK"
+  # Debian multiarch / other layouts
+  if compgen -G '/usr/lib/*/qt6/plugins/plasma' >/dev/null 2>&1; then
+    log "Plasma 6 OK"
+    return
+  fi
+  if [[ -e /usr/share/plasma/shells/org.kde.plasma.desktop ]]; then
+    log "Plasma 6 OK (desktop shell present)"
+    return
+  fi
+  die "Plasma 6 not detected. Install a Plasma 6 session and retry."
 }
 
 # --- packages ---
