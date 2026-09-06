@@ -208,15 +208,52 @@ pkg() {
 }
 
 # Install each package on its own so one missing name doesn't abort the rest (apt).
+PKG_OK=()
+PKG_FAILED=()
+
 pkg_each() {
   local p
   for p in "$@"; do
     if pkg "$p" 2>/dev/null; then
       log "  + $p"
+      PKG_OK+=("$p")
     else
       warn "  skip $p (not available)"
+      PKG_FAILED+=("$p")
     fi
   done
+}
+
+# Try alternatives until one installs (e.g. eza|exa, kvantum names).
+pkg_any() {
+  local p
+  for p in "$@"; do
+    if pkg "$p" 2>/dev/null; then
+      log "  + $p"
+      PKG_OK+=("$p")
+      return 0
+    fi
+  done
+  warn "  none available of: $*"
+  PKG_FAILED+=("any_of[$*]")
+  return 1
+}
+
+print_pkg_report() {
+  echo
+  if [[ ${#PKG_FAILED[@]} -eq 0 ]]; then
+    log "Package report: all requested packages installed OK"
+    return
+  fi
+  warn "Package report — failed / unavailable (${#PKG_FAILED[@]}):"
+  local p
+  for p in "${PKG_FAILED[@]}"; do
+    warn "  - $p"
+  done
+  if [[ ${#PKG_OK[@]} -gt 0 ]]; then
+    log "Installed OK (${#PKG_OK[@]}): ${PKG_OK[*]}"
+  fi
+  warn "Install continues. Install the failed ones manually if you need them."
 }
 
 install_nerd_font() {
@@ -238,32 +275,40 @@ install_starship() {
 }
 
 install_packages() {
+  PKG_OK=()
+  PKG_FAILED=()
   log "Packages ($DISTRO_FAMILY)..."
   case "$DISTRO_FAMILY" in
     arch)
-      pkg_each kvantum fish starship bat eza fzf fastfetch \
+      pkg_each fish starship bat fzf fastfetch \
         ttf-fira-sans ttf-firacode-nerd git curl wget unzip zip \
         plasma-workspace konsole
+      pkg_any kvantum
+      pkg_any eza
       ;;
     fedora)
-      pkg_each kvantum fish starship bat eza fzf fastfetch \
+      pkg_each fish starship bat fzf fastfetch \
         mozilla-fira-sans-fonts git curl wget unzip zip \
         plasma-workspace konsole
+      pkg_any kvantum
+      pkg_any eza
       install_nerd_font
       ;;
     debian)
-      # Required for shell rice — fail clearly if this one breaks
       pkg fish || die "apt could not install fish (enable universe/sid repos if needed)"
-      pkg_each bat eza exa fzf fastfetch fonts-fira-sans \
+      PKG_OK+=("fish")
+      pkg_each bat fzf fastfetch fonts-fira-sans \
         git curl wget unzip zip xz-utils \
-        plasma-workspace konsole \
-        qt6-style-kvantum qt6-style-kvantum-themes kvantum
+        plasma-workspace konsole
+      pkg_any eza exa
+      pkg_any qt6-style-kvantum qt6-style-kvantum-themes kvantum
       install_starship
       install_nerd_font
       ;;
   esac
   have fish || die "fish failed to install"
   have starship || install_starship
+  have starship || PKG_FAILED+=("starship")
 }
 
 # --- fetch ---
@@ -680,6 +725,7 @@ require_plasma6
 if [[ "$SHELL_ONLY" == 1 ]]; then
   install_packages
   install_shell
+  print_pkg_report
   log "Shell-only finished."
   exit 0
 fi
@@ -691,6 +737,7 @@ if [[ "$DO_UPDATE" == 1 ]]; then
   install_themes
   if [[ "$DO_APPLY" == 1 ]]; then apply_rice
   else log "Updated themes/plasmoids. Layout untouched (use --apply to reset panels)."; fi
+  print_pkg_report
   log "Done."
   exit 0
 fi
@@ -706,4 +753,5 @@ else
   log "Installed. Apply via System Settings → Global Theme → Dr460nized,"
   log "or: $0 --apply"
 fi
+print_pkg_report
 log "Done."
