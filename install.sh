@@ -93,9 +93,41 @@ dest_install() {
 }
 
 dest_cp() {
-  dest_mkdir "$2"
-  if [[ -w "$2" ]]; then cp -a "$1"/. "$2"/
-  else as_root cp -a "$1"/. "$2"/; fi
+  # Copy tree into share prefix. Never ship .git; escalate if dest has root leftovers.
+  local src="$1" dest="$2" tmp
+  dest_mkdir "$dest"
+
+  _copy_tree() {
+    # $1 = 0 user, 1 root
+    if [[ "$1" == 1 ]]; then
+      as_root rm -rf "$dest/.git" "$dest/.fetched"
+    else
+      rm -rf "$dest/.git" "$dest/.fetched" 2>/dev/null || true
+    fi
+    if have rsync; then
+      if [[ "$1" == 1 ]]; then
+        as_root rsync -a --exclude='.git' --exclude='.fetched' "$src"/ "$dest"/
+      else
+        rsync -a --exclude='.git' --exclude='.fetched' "$src"/ "$dest"/
+      fi
+    else
+      tmp="$(mktemp -d)"
+      tar -C "$src" --exclude='.git' --exclude='.fetched' -cf - . | tar -C "$tmp" -xf -
+      if [[ "$1" == 1 ]]; then
+        as_root cp -a "$tmp"/. "$dest"/
+      else
+        cp -a "$tmp"/. "$dest"/
+      fi
+      rm -rf "$tmp"
+    fi
+  }
+
+  if [[ -w "$dest" ]] && _copy_tree 0 2>/dev/null; then
+    unset -f _copy_tree
+    return 0
+  fi
+  _copy_tree 1
+  unset -f _copy_tree
 }
 
 dest_rm() {
