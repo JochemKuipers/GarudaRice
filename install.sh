@@ -810,26 +810,21 @@ apply_rice() {
 
   patch_aurorae
 
-  # Force Kvantum before look-and-feel so style sticks even if L&F is partial
-  mkdir -p "$REAL_HOME/.config/Kvantum"
-  printf '%s\n' '[General]' 'theme=Dr460nized' >"$REAL_HOME/.config/Kvantum/kvantum.kvconfig"
-  if have kvantummanager; then
-    kvantummanager --set Dr460nized >/dev/null 2>&1 \
-      || warn "kvantummanager --set Dr460nized failed"
-  fi
-  # Ensure Qt style + icons/colors even if look-and-feel skips them
-  if [[ -f "$REAL_HOME/.config/kdeglobals" ]]; then
-    if grep -q '^\[KDE\]' "$REAL_HOME/.config/kdeglobals"; then
-      if grep -q '^widgetStyle=' "$REAL_HOME/.config/kdeglobals"; then
-        sed -i 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' "$REAL_HOME/.config/kdeglobals"
-      else
-        sed -i '/^\[KDE\]/a widgetStyle=kvantum-dark' "$REAL_HOME/.config/kdeglobals"
-      fi
+  # Write Kvantum config only — never call kvantummanager (GUI pops on errors)
+  apply_kvantum_config() {
+    mkdir -p "$REAL_HOME/.config/Kvantum"
+    printf '%s\n' '[General]' 'theme=Dr460nized' >"$REAL_HOME/.config/Kvantum/kvantum.kvconfig"
+    [[ -f "$REAL_HOME/.config/kdeglobals" ]] || return 0
+    if grep -q '^widgetStyle=' "$REAL_HOME/.config/kdeglobals"; then
+      sed -i 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' "$REAL_HOME/.config/kdeglobals"
+    elif grep -q '^\[KDE\]' "$REAL_HOME/.config/kdeglobals"; then
+      sed -i '/^\[KDE\]/a widgetStyle=kvantum-dark' "$REAL_HOME/.config/kdeglobals"
     else
       printf '\n[KDE]\nwidgetStyle=kvantum-dark\nLookAndFeelPackage=Dr460nized\n' \
         >>"$REAL_HOME/.config/kdeglobals"
     fi
-  fi
+  }
+  apply_kvantum_config
 
   log "Applying Dr460nized (resets panels/dock)..."
   if have plasma-apply-lookandfeel; then
@@ -841,12 +836,7 @@ apply_rice() {
     warn "No look-and-feel tool; apply Dr460nized in System Settings"
   fi
 
-  # Re-assert Kvantum after L&F (some Plasma versions overwrite style)
-  printf '%s\n' '[General]' 'theme=Dr460nized' >"$REAL_HOME/.config/Kvantum/kvantum.kvconfig"
-  have kvantummanager && kvantummanager --set Dr460nized >/dev/null 2>&1 || true
-  if [[ -f "$REAL_HOME/.config/kdeglobals" ]] && grep -q '^widgetStyle=' "$REAL_HOME/.config/kdeglobals"; then
-    sed -i 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' "$REAL_HOME/.config/kdeglobals"
-  fi
+  apply_kvantum_config
 
   log "Done. Log out/in (or: plasmashell --replace &). Backup: $BACKUP_DIR"
 }
