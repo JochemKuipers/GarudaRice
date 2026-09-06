@@ -1,7 +1,20 @@
 # Dr460nized / GarudaRice — portable Garuda KDE rice (Plasma 6)
 
+## Quick install
+
 ```bash
-chmod +x install.sh uninstall.sh
+git clone --depth 1 https://github.com/JochemKuipers/GarudaRice.git && cd GarudaRice && ./install.sh
+```
+
+Apply the desktop layout in the same go:
+
+```bash
+git clone --depth 1 https://github.com/JochemKuipers/GarudaRice.git && cd GarudaRice && ./install.sh --apply
+```
+
+## Usage
+
+```bash
 ./install.sh              # themes, applets, fish/bash, Konsole
 ./install.sh --apply      # also reset panels/dock/wallpaper
 ./install.sh --update     # refresh upstream themes (keeps your layout)
