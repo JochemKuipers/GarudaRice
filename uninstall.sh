@@ -51,6 +51,8 @@ for p in \
   "$SHARE/fastfetch/presets/dr460nized.jsonc" \
   "$SHARE/icons/garuda" \
   "$SHARE/konsole/Garuda.profile" \
+  "$SHARE/fonts/FiraCodeNerdFont" \
+  "$HOME/.config/fontconfig/conf.d/99-garuda-rice-firacode-nerd.conf" \
   "$SHARE/plasma/plasmoids/org.emancastillo.panelwindowcontrols" \
   "$SHARE/plasma/plasmoids/org.kde.windowtitle" \
   "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \

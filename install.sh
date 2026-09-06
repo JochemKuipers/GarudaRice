@@ -8,11 +8,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DR460NIZED_TAG="5.0.3"
 SWEET_REF="nova"
 SWEET_GTK_RELEASE="https://github.com/EliverLara/Sweet/releases/download/v6.0/Sweet-Dark.tar.xz"
+# Vanilla Fira Code has no Nerd glyphs. Fastfetch needs this patched zip (MDI U+F0000+).
+NERD_FONTS_VERSION="3.5.1"
+NERD_FONTS_FIRACODE_URL="https://github.com/ryanoasis/nerd-fonts/releases/download/v${NERD_FONTS_VERSION}/FiraCode.zip"
 
 log()  { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
+
+nerd_font_dest() { echo "$(rice_share)/fonts/FiraCodeNerdFont"; }
+
+has_firacode_nerd() {
+  local stamp
+  for stamp in "$(nerd_font_dest)/.version" \
+               "$REAL_HOME/.local/share/fonts/FiraCodeNerdFont/.version"; do
+    [[ -f "$stamp" ]] && [[ "$(cat "$stamp")" == "$NERD_FONTS_VERSION" ]] && return 0
+  done
+  return 1
+}
 
 usage() {
   cat <<'EOF'
@@ -421,7 +435,7 @@ install_packages() {
       pkg_each bat fzf fastfetch \
         git curl wget unzip zip xz-utils \
         plasma-workspace konsole
-      # https://packages.debian.org/sid/fonts/fonts-firacode
+      # Vanilla Fira Code for UI. Konsole/fastfetch use the v3.5.1 Nerd Font zip.
       pkg_any fonts-firacode
       pkg_any eza exa
       # Qt6 Kvantum engine (theme files come from garuda-dr460nized)
@@ -441,6 +455,46 @@ install_packages() {
   if ! already kvantum; then
     warn "Kvantum style plugin not detected — Qt apps will stay Breeze until qt6-style-kvantum/kvantum is installed"
   fi
+  install_firacode_nerd_font
+}
+
+install_firacode_nerd_font() {
+  mkdir -p "$REAL_HOME/.config/fontconfig/conf.d"
+  install -m 0644 "$ROOT/configs/fontconfig/99-garuda-rice-firacode-nerd.conf" \
+    "$REAL_HOME/.config/fontconfig/conf.d/99-garuda-rice-firacode-nerd.conf"
+
+  if has_firacode_nerd; then
+    log "  = FiraCode Nerd Font ${NERD_FONTS_VERSION} (already present)"
+    PKG_OK+=("firacode-nerd")
+    return 0
+  fi
+  have unzip || { warn "unzip missing — cannot unpack FiraCode Nerd Font"; PKG_FAILED+=("firacode-nerd"); return 1; }
+
+  log "Installing FiraCode Nerd Font ${NERD_FONTS_VERSION}..."
+  mkdir -p "$BUILD_DIR"
+  local zip="$BUILD_DIR/FiraCodeNerdFont.zip" dest tmp f stamp
+  dest="$(nerd_font_dest)"
+  download "$NERD_FONTS_FIRACODE_URL" "$zip"
+  tmp="$(mktemp -d)"
+  unzip -qo "$zip" -d "$tmp"
+  dest_mkdir "$dest"
+  while IFS= read -r f; do
+    dest_install "$f" "$dest/$(basename "$f")"
+  done < <(find "$tmp" -type f -iname '*.ttf')
+  rm -rf "$tmp"
+  rm -f "$zip"
+  stamp="$(mktemp)"
+  printf '%s\n' "$NERD_FONTS_VERSION" >"$stamp"
+  dest_install "$stamp" "$dest/.version"
+  rm -f "$stamp"
+  if [[ -w "$dest" ]]; then
+    fc-cache -f "$dest" >/dev/null 2>&1 || true
+  else
+    as_root fc-cache -f "$dest" >/dev/null 2>&1 || true
+  fi
+  fc-cache -f "$REAL_HOME/.local/share/fonts" >/dev/null 2>&1 || true
+  log "  + FiraCode Nerd Font ${NERD_FONTS_VERSION} → $dest"
+  PKG_OK+=("firacode-nerd")
 }
 
 # --- fetch ---
