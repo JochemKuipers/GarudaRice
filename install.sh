@@ -191,13 +191,32 @@ ensure_tooling() {
 }
 
 # --- packages ---
+APT_UPDATED=0
+
 pkg() {
   case "$DISTRO_FAMILY" in
     arch) as_root pacman -S --needed --noconfirm "$@" ;;
     fedora) as_root dnf install -y "$@" ;;
-    debian) as_root apt-get update -qq
-            as_root DEBIAN_FRONTEND=noninteractive apt-get install -y "$@" ;;
+    debian)
+      if [[ "$APT_UPDATED" != 1 ]]; then
+        as_root apt-get update -qq
+        APT_UPDATED=1
+      fi
+      as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "$@"
+      ;;
   esac
+}
+
+# Install each package on its own so one missing name doesn't abort the rest (apt).
+pkg_each() {
+  local p
+  for p in "$@"; do
+    if pkg "$p" 2>/dev/null; then
+      log "  + $p"
+    else
+      warn "  skip $p (not available)"
+    fi
+  done
 }
 
 install_nerd_font() {
@@ -222,22 +241,23 @@ install_packages() {
   log "Packages ($DISTRO_FAMILY)..."
   case "$DISTRO_FAMILY" in
     arch)
-      pkg kvantum fish starship bat eza fzf fastfetch \
-          ttf-fira-sans ttf-firacode-nerd git curl wget unzip zip \
-          plasma-workspace konsole || warn "some pacman packages failed"
+      pkg_each kvantum fish starship bat eza fzf fastfetch \
+        ttf-fira-sans ttf-firacode-nerd git curl wget unzip zip \
+        plasma-workspace konsole
       ;;
     fedora)
-      pkg kvantum fish starship bat eza fzf fastfetch \
-          mozilla-fira-sans-fonts git curl wget unzip zip \
-          plasma-workspace konsole || warn "some dnf packages failed"
+      pkg_each kvantum fish starship bat eza fzf fastfetch \
+        mozilla-fira-sans-fonts git curl wget unzip zip \
+        plasma-workspace konsole
       install_nerd_font
       ;;
     debian)
-      pkg fish bat eza fzf fastfetch fonts-fira-sans \
-          git curl wget unzip zip xz-utils plasma-workspace konsole \
-          qt6-style-kvantum 2>/dev/null \
-        || pkg kvantum 2>/dev/null \
-        || warn "Install Kvantum manually if missing"
+      # Required for shell rice — fail clearly if this one breaks
+      pkg fish || die "apt could not install fish (enable universe/sid repos if needed)"
+      pkg_each bat eza exa fzf fastfetch fonts-fira-sans \
+        git curl wget unzip zip xz-utils \
+        plasma-workspace konsole \
+        qt6-style-kvantum qt6-style-kvantum-themes kvantum
       install_starship
       install_nerd_font
       ;;
