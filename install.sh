@@ -242,8 +242,13 @@ already() {
     xz-utils) have xz || have xzcat ;;
     konsole) have konsole ;;
     plasma-workspace) have plasmashell ;;
-    kvantum|qt6-style-kvantum|qt6-style-kvantum-themes)
-      have kvantummanager || have kvantum ;;
+    kvantum|qt6-style-kvantum|qt6-style-kvantum-themes|libqt6svg6)
+      have kvantummanager || have kvantum \
+        || [[ -e /usr/lib/qt6/plugins/styles/libkvantum.so ]] \
+        || [[ -e /usr/lib64/qt6/plugins/styles/libkvantum.so ]] \
+        || compgen -G '/usr/lib/*/qt6/plugins/styles/libkvantum.so' >/dev/null 2>&1 ;;
+    kdeplasma-addons|plasma-widgets-addons|plasma6-addons)
+      [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
     cmake) have cmake ;;
@@ -346,9 +351,9 @@ install_packages() {
   case "$DISTRO_FAMILY" in
     arch)
       pkg_each fish starship bat fzf fastfetch \
-        git curl wget unzip zip plasma-workspace konsole
+        git curl wget unzip zip plasma-workspace konsole kvantum
       pkg_any ttf-fira-code otf-fira-code
-      pkg_any kvantum
+      pkg_any kdeplasma-addons
       pkg_any eza
       ;;
     fedora)
@@ -356,6 +361,7 @@ install_packages() {
         git curl wget unzip zip plasma-workspace konsole
       pkg_any fira-code-fonts
       pkg_any kvantum
+      pkg_any plasma-widgets-addons kdeplasma-addons plasma6-addons
       pkg_any eza
       ;;
     debian)
@@ -372,7 +378,11 @@ install_packages() {
       # https://packages.debian.org/sid/fonts/fonts-firacode
       pkg_any fonts-firacode
       pkg_any eza exa
-      pkg_any qt6-style-kvantum qt6-style-kvantum-themes kvantum
+      # Qt6 Kvantum engine (theme files come from garuda-dr460nized)
+      if ! pkg_any qt6-style-kvantum; then
+        pkg_any qt5-style-kvantum kvantum || warn "Kvantum Qt style missing — install qt6-style-kvantum"
+      fi
+      pkg_any plasma-widgets-addons kdeplasma-addons
       have starship || install_starship
       have starship && PKG_OK+=("starship") || PKG_FAILED+=("starship")
       ;;
@@ -380,6 +390,9 @@ install_packages() {
   have fish || die "fish is required but not installed"
   have starship || install_starship
   have starship || PKG_FAILED+=("starship")
+  if ! already kvantum; then
+    warn "Kvantum style plugin not detected — Qt apps will stay Breeze until qt6-style-kvantum/kvantum is installed"
+  fi
 }
 
 # --- fetch ---
@@ -566,7 +579,7 @@ install_plasmoids() {
 
 # --- themes ---
 install_themes() {
-  local SHARE src kde colorizer_root tmp
+  local SHARE src kde colorizer_root tmp meta laf_defaults
   SHARE="$(rice_share)"
   src="$BUILD_DIR/garuda-dr460nized"
   [[ -d "$src/usr/share" ]] || die "garuda-dr460nized missing"
@@ -578,6 +591,16 @@ install_themes() {
     "$SHARE/plasma/layout-templates/org.garuda.desktop.defaultPanel"
   dest_cp "$src/usr/share/plasma/layout-templates/org.garuda.desktop.defaultDock" \
     "$SHARE/plasma/layout-templates/org.garuda.desktop.defaultDock"
+  # Garuda tags templates for plasma-garuda; stock Plasma ignores those.
+  for layout in defaultPanel defaultDock; do
+    meta="$SHARE/plasma/layout-templates/org.garuda.desktop.${layout}/metadata.json"
+    [[ -f "$meta" ]] || continue
+    if [[ -w "$meta" ]]; then
+      sed -i 's/"plasma-garuda"/"org.kde.plasma.desktop"/g' "$meta"
+    else
+      as_root sed -i 's/"plasma-garuda"/"org.kde.plasma.desktop"/g' "$meta"
+    fi
+  done
   dest_cp "$src/usr/share/Kvantum/Dr460nized" "$SHARE/Kvantum/Dr460nized"
   dest_cp "$src/usr/share/wallpapers/Maldrakor" "$SHARE/wallpapers/Maldrakor"
 
@@ -613,6 +636,21 @@ install_themes() {
       "$SHARE/plasma/layout-templates/org.garuda.desktop.${layout}/contents/layout.js"
     rm -f "$tmp"
   done
+
+  # Point look-and-feel wallpaper defaults at our install prefix
+  laf_defaults="$SHARE/plasma/look-and-feel/Dr460nized/contents/defaults"
+  if [[ -f "$laf_defaults" ]]; then
+    tmp="$(mktemp)"
+    sed -e "s|/usr/share/wallpapers|${SHARE}/wallpapers|g" \
+        -e 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' \
+        "$laf_defaults" >"$tmp"
+    # ensure widgetStyle line exists under [kdeglobals][KDE]
+    if ! grep -q '^widgetStyle=' "$tmp"; then
+      sed -i '/^\[kdeglobals\]\[KDE\]/a widgetStyle=kvantum-dark' "$tmp"
+    fi
+    dest_install "$tmp" "$laf_defaults"
+    rm -f "$tmp"
+  fi
 
   log "Sweet..."
   kde="$BUILD_DIR/sweet/kde"
@@ -771,7 +809,29 @@ apply_rice() {
     && sed -i "s|^Command=.*|Command=${shell_path}|" "$REAL_HOME/.local/share/konsole/Garuda.profile"
 
   patch_aurorae
-  log "Applying Dr460nized..."
+
+  # Force Kvantum before look-and-feel so style sticks even if L&F is partial
+  mkdir -p "$REAL_HOME/.config/Kvantum"
+  printf '%s\n' '[General]' 'theme=Dr460nized' >"$REAL_HOME/.config/Kvantum/kvantum.kvconfig"
+  if have kvantummanager; then
+    kvantummanager --set Dr460nized >/dev/null 2>&1 \
+      || warn "kvantummanager --set Dr460nized failed"
+  fi
+  # Ensure Qt style + icons/colors even if look-and-feel skips them
+  if [[ -f "$REAL_HOME/.config/kdeglobals" ]]; then
+    if grep -q '^\[KDE\]' "$REAL_HOME/.config/kdeglobals"; then
+      if grep -q '^widgetStyle=' "$REAL_HOME/.config/kdeglobals"; then
+        sed -i 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' "$REAL_HOME/.config/kdeglobals"
+      else
+        sed -i '/^\[KDE\]/a widgetStyle=kvantum-dark' "$REAL_HOME/.config/kdeglobals"
+      fi
+    else
+      printf '\n[KDE]\nwidgetStyle=kvantum-dark\nLookAndFeelPackage=Dr460nized\n' \
+        >>"$REAL_HOME/.config/kdeglobals"
+    fi
+  fi
+
+  log "Applying Dr460nized (resets panels/dock)..."
   if have plasma-apply-lookandfeel; then
     plasma-apply-lookandfeel -a Dr460nized \
       || warn "apply failed — set Global Theme → Dr460nized in System Settings"
@@ -780,6 +840,14 @@ apply_rice() {
   else
     warn "No look-and-feel tool; apply Dr460nized in System Settings"
   fi
+
+  # Re-assert Kvantum after L&F (some Plasma versions overwrite style)
+  printf '%s\n' '[General]' 'theme=Dr460nized' >"$REAL_HOME/.config/Kvantum/kvantum.kvconfig"
+  have kvantummanager && kvantummanager --set Dr460nized >/dev/null 2>&1 || true
+  if [[ -f "$REAL_HOME/.config/kdeglobals" ]] && grep -q '^widgetStyle=' "$REAL_HOME/.config/kdeglobals"; then
+    sed -i 's/^widgetStyle=.*/widgetStyle=kvantum-dark/' "$REAL_HOME/.config/kdeglobals"
+  fi
+
   log "Done. Log out/in (or: plasmashell --replace &). Backup: $BACKUP_DIR"
 }
 

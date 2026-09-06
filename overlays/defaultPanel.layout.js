@@ -102,11 +102,13 @@ systray.currentConfigGroup = ["General"]
 systray.writeConfig("scaleIconsToFit", true)
 systray.writeConfig("iconSize", 0) // Optional: If you want to ensure it doesn't default to a tiny fixed size
 
-// User Switcher
-var switcher = panel.addWidget("org.kde.plasma.userswitcher")
-switcher.currentConfigGroup = ["General"]
-switcher.writeConfig("showFace", true)
-switcher.writeConfig("showName", false)
-switcher.writeConfig("showTechnicalInfo", true)
+// User Switcher (plasma-addons; skip quietly if missing on the distro)
+try {
+  var switcher = panel.addWidget("org.kde.plasma.userswitcher")
+  switcher.currentConfigGroup = ["General"]
+  switcher.writeConfig("showFace", true)
+  switcher.writeConfig("showName", false)
+  switcher.writeConfig("showTechnicalInfo", true)
+} catch (e) { /* optional */ }
 
 // End of Top Panel creation //

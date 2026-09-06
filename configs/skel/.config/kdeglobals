@@ -1,13 +1,19 @@
 [General]
+ColorScheme=Sweet
 fixed=Fira Code,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 font=Fira Code,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 menuFont=Fira Code,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 smallestReadableFont=Fira Code,8,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 toolBarFont=Fira Code,10,-1,5,400,0,0,0,0,0,0,0,0,0,0,1
 
+[Icons]
+Theme=BeautyLine
+
 [KDE]
+ColorScheme=Sweet
 LookAndFeelPackage=Dr460nized
 SingleClick=true
+widgetStyle=kvantum-dark
 
 [WM]
 activeFont=Fira Code,10,-1,5,75,0,0,0,0,0,Bold
