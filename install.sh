@@ -286,6 +286,11 @@ already() {
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
+    kwin-dev)
+      [[ -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]] ;;
+    libkwin-dev)
+      [[ -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]] \
+        || [[ -d /usr/include/kwin ]] ;;
     libkdecorations3-dev|libkdecorations2-dev)
       [[ -e /usr/lib/*/cmake/KDecoration3/KDecoration3Config.cmake ]] \
         || [[ -e /usr/lib/x86_64-linux-gnu/cmake/KDecoration3/KDecoration3Config.cmake ]] \
@@ -583,14 +588,17 @@ ensure_window_buttons_deps() {
         kdecoration-devel kwin-devel libplasma-devel
       ;;
     debian)
-      # PikaOS/Debian Plasma 6.7 ships libkdecorations3; need matching -dev for cmake
+      # PikaOS/Debian: kwin-dev ships org.kde.KWin.xml (libkwin-dev alone is not enough)
       pkg_each extra-cmake-modules gettext \
         qt6-base-dev qt6-declarative-dev \
         libkf6coreaddons-dev libkf6config-dev libkf6declarative-dev \
         libkf6package-dev libkf6svg-dev libkf6i18n-dev \
         libkf6service-dev libkf6configwidgets-dev libkf6kcmutils-dev \
-        libkwin-dev libplasma-dev \
-        libkdecorations3-dev
+        libplasma-dev libkdecorations3-dev \
+        kwin-dev
+      if [[ ! -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]]; then
+        warn "org.kde.KWin.xml still missing after kwin-dev — window-buttons build will fail"
+      fi
       ;;
   esac
 }
@@ -616,6 +624,10 @@ install_window_buttons() {
   ensure_window_buttons_deps
   local src="$BUILD_DIR/window-buttons" logf="$BUILD_DIR/window-buttons-build.log"
   [[ -f "$src/CMakeLists.txt" ]] || { warn "window-buttons sources missing"; return 1; }
+  if [[ ! -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]]; then
+    warn "Missing /usr/share/dbus-1/interfaces/org.kde.KWin.xml (install kwin-dev)"
+    return 1
+  fi
 
   log "  building org.kde.windowbuttons + appletdecoration → /usr (log: $logf)"
   dest_rm "$src/build"
@@ -634,6 +646,12 @@ install_window_buttons() {
     fi
   fi
   warn "Aurorae window-buttons build failed — using pure-QML fallback (see $logf)"
+  # Show the make error line(s) so the user doesn't have to dig
+  if [[ -f "$logf" ]]; then
+    grep -E 'Error|error:|No rule to make|FAILED' "$logf" | tail -5 | while read -r line; do
+      warn "  cmake: $line"
+    done
+  fi
   return 1
 }
 
