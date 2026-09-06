@@ -142,6 +142,54 @@ require_plasma6() {
   die "Plasma 6 not detected. Install a Plasma 6 session and retry."
 }
 
+# --- early tooling (before fetch / fonts) ---
+ensure_tooling() {
+  log "Checking tooling..."
+  local need=()
+  have git    || need+=(git)
+  have curl || have wget || need+=(curl)
+  have unzip  || need+=(unzip)
+  have zip    || need+=(zip)
+  have tar    || need+=(tar)
+  # Debian often needs xz-utils for .tar.xz
+  if [[ "$DISTRO_FAMILY" == debian ]] && ! have xz && ! have xzcat; then
+    need+=(xz-utils)
+  fi
+
+  if [[ ${#need[@]} -eq 0 ]]; then
+    log "Tooling OK"
+    return
+  fi
+
+  log "Installing missing tools: ${need[*]}"
+  case "$DISTRO_FAMILY" in
+    arch)
+      # tar is in coreutils/filesystem usually; still ask pacman
+      pkg "${need[@]}" || die "Failed to install: ${need[*]}"
+      ;;
+    fedora)
+      pkg "${need[@]}" || die "Failed to install: ${need[*]}"
+      ;;
+    debian)
+      # map bare names if needed
+      local deb=()
+      local n
+      for n in "${need[@]}"; do
+        case "$n" in
+          tar) deb+=(tar) ;;
+          *) deb+=("$n") ;;
+        esac
+      done
+      pkg "${deb[@]}" || die "Failed to install: ${deb[*]}"
+      ;;
+  esac
+
+  have git || die "git still missing after install"
+  have curl || have wget || die "curl/wget still missing after install"
+  have unzip || die "unzip still missing after install"
+  log "Tooling OK"
+}
+
 # --- packages ---
 pkg() {
   case "$DISTRO_FAMILY" in
@@ -175,18 +223,18 @@ install_packages() {
   case "$DISTRO_FAMILY" in
     arch)
       pkg kvantum fish starship bat eza fzf fastfetch \
-          ttf-fira-sans ttf-firacode-nerd git curl unzip \
+          ttf-fira-sans ttf-firacode-nerd git curl wget unzip zip \
           plasma-workspace konsole || warn "some pacman packages failed"
       ;;
     fedora)
       pkg kvantum fish starship bat eza fzf fastfetch \
-          mozilla-fira-sans-fonts git curl unzip \
+          mozilla-fira-sans-fonts git curl wget unzip zip \
           plasma-workspace konsole || warn "some dnf packages failed"
       install_nerd_font
       ;;
     debian)
       pkg fish bat eza fzf fastfetch fonts-fira-sans \
-          git curl unzip plasma-workspace konsole \
+          git curl wget unzip zip xz-utils plasma-workspace konsole \
           qt6-style-kvantum 2>/dev/null \
         || pkg kvantum 2>/dev/null \
         || warn "Install Kvantum manually if missing"
@@ -542,6 +590,7 @@ apply_rice() {
 
 # --- main ---
 detect_distro
+ensure_tooling
 require_plasma6
 
 if [[ "$SHELL_ONLY" == 1 ]]; then
