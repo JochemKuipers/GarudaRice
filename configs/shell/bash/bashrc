@@ -1,77 +1,56 @@
-# GarudaRice bash defaults (adapted from Garuda Linux garuda-bash-config)
+# GarudaRice bash defaults
 [[ $- != *i* ]] && return
 
-# Starship
-if command -v starship >/dev/null 2>&1; then
-  eval "$(starship init bash)"
-fi
+command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"
 
-# eza / bat
-if [[ -x $(command -v eza) ]]; then
+if command -v eza >/dev/null 2>&1; then
   alias ls='eza -al --group-directories-first'
   alias la='eza -a --group-directories-first'
   alias ll='eza -l --group-directories-first'
   alias lt='eza -aT --group-directories-first'
   alias l.='eza -ald --group-directories-first .*'
 fi
+command -v bat >/dev/null 2>&1 && alias cat='bat --style header --style snip --style changes --style header'
 
-if command -v bat >/dev/null 2>&1; then
-  alias cat='bat --style header --style snip --style changes --style header'
-fi
-
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-alias .....='cd ../../../..'
-alias ......='cd ../../../../..'
-alias dir='dir --color=auto'
-alias vdir='vdir --color=auto'
-if command -v ugrep >/dev/null 2>&1; then
-  alias grep='ugrep --color=auto'
-  alias fgrep='ugrep -F --color=auto'
-  alias egrep='ugrep -E --color=auto'
-else
-  alias grep='grep --color=auto'
-fi
-alias ip='ip -color'
-alias psmem='ps auxf | sort -nr -k 4'
-alias psmem10='ps auxf | sort -nr -k 4 | head -10'
-alias tarnow='tar -acf '
-alias untar='tar -zxvf '
-alias wget='wget -c '
-alias please='sudo'
-alias tb='nc termbin.com 9999'
+alias ..='cd ..' ...='cd ../..' ....='cd ../../..'
+alias dir='dir --color=auto' vdir='vdir --color=auto'
+alias ip='ip -color' please='sudo' wget='wget -c '
 alias jctl='journalctl -p 3 -xb'
+command -v ugrep >/dev/null 2>&1 && alias grep='ugrep --color=auto' || alias grep='grep --color=auto'
 
-gitg() { git gui; }
-
-# Distro-specific
-_RICE_ROOT=""
+_RICE=""
 for d in /usr/local/share/garuda-rice /usr/share/garuda-rice "${HOME}/.local/share/garuda-rice"; do
-  if [[ -d "$d/distro" ]]; then
-    _RICE_ROOT="$d"
-    break
-  fi
+  [[ -d "$d/distro" ]] && { _RICE="$d"; break; }
 done
-if [[ -n "$_RICE_ROOT" ]]; then
-  _FAM="$(cat "$_RICE_ROOT/distro/current" 2>/dev/null || echo arch)"
-  [[ -f "$_RICE_ROOT/distro/${_FAM}.inc" ]] && source "$_RICE_ROOT/distro/${_FAM}.inc"
-fi
-unset _RICE_ROOT _FAM
+_FAM="$(cat "${_RICE}/distro/current" 2>/dev/null || echo arch)"
+case "$_FAM" in
+  fedora)
+    alias upd='sudo dnf upgrade --refresh'
+    alias cleanup='sudo dnf autoremove'
+    alias rmpkg='sudo dnf remove'
+    ;;
+  debian)
+    alias upd='sudo apt update && sudo apt upgrade'
+    alias cleanup='sudo apt autoremove --purge'
+    alias rmpkg='sudo apt remove'
+    ;;
+  *)
+    alias upd='sudo pacman -Syu'
+    alias fixpacman='sudo rm -f /var/lib/pacman/db.lck'
+    alias rmpkg='sudo pacman -Rdd'
+    alias cleanup='sudo pacman -Rns $(pacman -Qtdq) 2>/dev/null'
+    [[ -x /usr/bin/paru && ! -x /usr/bin/yay ]] && alias yay='paru'
+    ;;
+esac
+unset _RICE _FAM
 
-# Fastfetch once per interactive shell (optional)
 __garuda_rice_fastfetch() {
   command -v fastfetch >/dev/null 2>&1 || return 0
-  local preset
-  for preset in \
-    /usr/local/share/fastfetch/presets/dr460nized.jsonc \
-    /usr/share/fastfetch/presets/dr460nized.jsonc \
-    "${HOME}/.local/share/fastfetch/presets/dr460nized.jsonc"
-  do
-    if [[ -f "$preset" ]]; then
-      fastfetch --config "$preset"
-      return 0
-    fi
+  local p
+  for p in /usr/local/share/fastfetch/presets/dr460nized.jsonc \
+           /usr/share/fastfetch/presets/dr460nized.jsonc \
+           "${HOME}/.local/share/fastfetch/presets/dr460nized.jsonc"; do
+    [[ -f "$p" ]] && { fastfetch --config "$p"; return; }
   done
   fastfetch
 }
