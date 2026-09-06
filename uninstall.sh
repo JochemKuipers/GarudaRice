@@ -50,7 +50,11 @@ for p in \
   "$SHARE/garuda-rice" \
   "$SHARE/fastfetch/presets/dr460nized.jsonc" \
   "$SHARE/icons/garuda" \
-  "$SHARE/konsole/Garuda.profile"
+  "$SHARE/konsole/Garuda.profile" \
+  "$SHARE/plasma/plasmoids/org.emancastillo.panelwindowcontrols" \
+  "$SHARE/plasma/plasmoids/org.kde.windowtitle" \
+  "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \
+  "$SHARE/plasma/plasmoids/luisbocanegra.panel.colorizer"
 do
   rm_path "$p"
 done

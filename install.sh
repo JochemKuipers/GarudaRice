@@ -285,8 +285,6 @@ already() {
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
     fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
       fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
-    plasma-applet-window-buttons|plasma6-applets-window-buttons)
-      [[ -d /usr/share/plasma/plasmoids/org.kde.windowbuttons ]] ;;
     cmake) have cmake ;;
     make) have make ;;
     g++|gcc|gcc-c++) have g++ || have c++ ;;
@@ -597,13 +595,21 @@ install_plasmoids() {
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
   patch_window_title
-  # Pure QML — no org.kde.appletdecoration / cmake (works on Debian & PikaOS)
+
+  # Drop broken QML-only org.kde.windowbuttons (needs appletdecoration — not shipped)
+  for stale in \
+    "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \
+    "$REAL_HOME/.local/share/plasma/plasmoids/org.kde.windowbuttons" \
+    /usr/local/share/plasma/plasmoids/org.kde.windowbuttons
+  do
+    [[ -e "$stale" ]] || continue
+    log "  removing broken leftover $stale"
+    dest_rm "$stale"
+  done
+
+  # Pure QML window buttons — no org.kde.appletdecoration
   install_plasmoid_repo "$BUILD_DIR/panel-window-controls" "org.emancastillo.panelwindowcontrols" \
     || warn "panel window controls failed"
-  # Optional Arch packaged decoration-themed buttons (not required)
-  if [[ "$DISTRO_FAMILY" == arch ]]; then
-    pkg_any plasma-applet-window-buttons || true
-  fi
 
   local src="$BUILD_DIR/blurredwallpaper"
   if [[ -d "$src/a2n.blur" ]]; then dest_cp "$src/a2n.blur" "$SHARE/plasma/wallpapers/a2n.blur"
@@ -690,6 +696,14 @@ install_themes() {
     [[ -f "$ROOT/overlays/${layout}.layout.js" ]] || continue
     tmp="$(mktemp)"
     sed "s|__COLORIZER_ROOT__|${colorizer_root}|g" "$ROOT/overlays/${layout}.layout.js" >"$tmp"
+    if [[ "$layout" == defaultPanel ]] && ! grep -q 'org.emancastillo.panelwindowcontrols' "$tmp"; then
+      warn "panel overlay missing panelwindowcontrols — check overlays/defaultPanel.layout.js"
+    fi
+    # Ensure we never reintroduce the broken appletdecoration-based applet
+    if grep -q 'org.kde.windowbuttons' "$tmp"; then
+      warn "panel overlay still references org.kde.windowbuttons; stripping"
+      sed -i '/org\.kde\.windowbuttons/,/^$/d' "$tmp" || true
+    fi
     dest_install "$tmp" \
       "$SHARE/plasma/layout-templates/org.garuda.desktop.${layout}/contents/layout.js"
     rm -f "$tmp"
