@@ -24,7 +24,7 @@ UnderlineFilesEnabled=true
 KeyBindings=default
 
 [Scrolling]
-HistoryMode=1
+HistoryMode=2
 
 [Terminal Features]
 BlinkingCursorEnabled=true

@@ -46,14 +46,14 @@ Scale=1
 
 [org.kde.kdecoration2]
 BorderSizeAuto=false
-ButtonsOnLeft=XAI
-ButtonsOnRight=
+ButtonsOnLeft=
+ButtonsOnRight=IAX
 library=org.kde.kwin.aurorae.v2
 theme=__aurorae__svg__Sweet-Dark
 
 [org.kde.kdecoration3]
 BorderSizeAuto=false
-ButtonsOnLeft=XAI
-ButtonsOnRight=
+ButtonsOnLeft=
+ButtonsOnRight=IAX
 library=org.kde.kwin.aurorae.v2
 theme=__aurorae__svg__Sweet-Dark

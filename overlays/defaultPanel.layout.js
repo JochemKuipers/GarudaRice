@@ -59,14 +59,11 @@ var spacer = panel.addWidget("org.kde.plasma.panelspacer")
 // Digital Clock
 var digitalclock = panel.addWidget("org.kde.plasma.digitalclock")
 digitalclock.currentConfigGroup = ["Appearance"]
-digitalclock.writeConfig("autoFontAndSize", false)
+digitalclock.writeConfig("autoFontAndSize", true)
 digitalclock.writeConfig("customDateFormat", "MMM d,")
 digitalclock.writeConfig("dateDisplayFormat", "BesideTime")
 digitalclock.writeConfig("dateFormat", "custom")
 digitalclock.writeConfig("enabledCalendarPlugins", "alternatecalendar,astronomicalevents,holidaysevents")
-digitalclock.writeConfig("fontFamily", "Fira Code")
-digitalclock.writeConfig("fontStyleName", "Regular")
-digitalclock.writeConfig("fontWeight", 400)
 digitalclock.writeConfig("showWeekNumbers", true)
 
 // Add Right Expandable Spacer

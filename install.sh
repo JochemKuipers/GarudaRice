@@ -8,7 +8,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DR460NIZED_TAG="5.0.3"
 SWEET_REF="nova"
 SWEET_GTK_RELEASE="https://github.com/EliverLara/Sweet/releases/download/v6.0/Sweet-Dark.tar.xz"
-# Vanilla Fira Code has no Nerd glyphs. Fastfetch needs this patched zip (MDI U+F0000+).
+# FiraCode Nerd Font for Konsole/Yakuake/fastfetch (MDI U+F0000+ glyphs).
 NERD_FONTS_VERSION="3.5.1"
 NERD_FONTS_FIRACODE_URL="https://github.com/ryanoasis/nerd-fonts/releases/download/v${NERD_FONTS_VERSION}/FiraCode.zip"
 
@@ -298,8 +298,6 @@ already() {
         || compgen -G '/usr/lib/*/qt6/plugins/styles/libkvantum.so' >/dev/null 2>&1 ;;
     kdeplasma-addons|plasma-widgets-addons|plasma6-addons)
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
-    fonts-firacode|ttf-fira-code|otf-fira-code|fira-code-fonts|fonts-fira-code)
-      fc-list 2>/dev/null | grep -qiE 'Fira Code|FiraCode' ;;
     kwin-dev)
       [[ -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]] ;;
     libkwin-dev)
@@ -412,14 +410,12 @@ install_packages() {
     arch)
       pkg_each fish starship bat fzf fastfetch \
         git curl wget unzip zip plasma-workspace konsole kvantum
-      pkg_any ttf-fira-code otf-fira-code
       pkg_any kdeplasma-addons
       pkg_any eza
       ;;
     fedora)
       pkg_each fish starship bat fzf fastfetch \
         git curl wget unzip zip plasma-workspace konsole
-      pkg_any fira-code-fonts
       pkg_any kvantum
       pkg_any plasma-widgets-addons kdeplasma-addons plasma6-addons
       pkg_any eza
@@ -435,8 +431,7 @@ install_packages() {
       pkg_each bat fzf fastfetch \
         git curl wget unzip zip xz-utils \
         plasma-workspace konsole
-      # Vanilla Fira Code for UI. Konsole/fastfetch use the v3.5.1 Nerd Font zip.
-      pkg_any fonts-firacode
+      # FiraCode Nerd Font for Konsole/Yakuake/fastfetch (installed via zip below).
       pkg_any eza exa
       # Qt6 Kvantum engine (theme files come from garuda-dr460nized)
       if ! pkg_any qt6-style-kvantum; then
