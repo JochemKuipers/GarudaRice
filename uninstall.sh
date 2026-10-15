@@ -56,7 +56,10 @@ for p in \
   "$SHARE/plasma/plasmoids/org.emancastillo.panelwindowcontrols" \
   "$SHARE/plasma/plasmoids/org.kde.windowtitle" \
   "$SHARE/plasma/plasmoids/org.kde.windowbuttons" \
-  "$SHARE/plasma/plasmoids/luisbocanegra.panel.colorizer"
+  "$SHARE/plasma/plasmoids/luisbocanegra.panel.colorizer" \
+  "/usr/share/sddm/themes/Sweet" \
+  "$SHARE/sddm/themes/Sweet" \
+  "/etc/sddm.conf.d/zz-garuda-rice.conf"
 do
   rm_path "$p"
 done

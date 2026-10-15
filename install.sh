@@ -298,6 +298,11 @@ already() {
         || compgen -G '/usr/lib/*/qt6/plugins/styles/libkvantum.so' >/dev/null 2>&1 ;;
     kdeplasma-addons|plasma-widgets-addons|plasma6-addons)
       [[ -d /usr/share/plasma/plasmoids/org.kde.plasma.userswitcher ]] ;;
+    # Sweet-sddm-v2 (Plasma 6): Qt5Compat.GraphicalEffects
+    qml6-module-qt5compat-graphicaleffects|qt6-5compat|qt6-qt5compat)
+      [[ -d /usr/lib/*/qt6/qml/Qt5Compat/GraphicalEffects ]] \
+        || [[ -d /usr/lib/qt6/qml/Qt5Compat/GraphicalEffects ]] \
+        || [[ -d /usr/lib64/qt6/qml/Qt5Compat/GraphicalEffects ]] ;;
     kwin-dev)
       [[ -f /usr/share/dbus-1/interfaces/org.kde.KWin.xml ]] ;;
     libkwin-dev)
@@ -412,6 +417,8 @@ install_packages() {
         git curl wget unzip zip plasma-workspace konsole kvantum
       pkg_any kdeplasma-addons
       pkg_any eza
+      # Sweet-sddm-v2 (Plasma 6)
+      pkg_any qt6-5compat
       ;;
     fedora)
       pkg_each fish starship bat fzf fastfetch \
@@ -419,6 +426,7 @@ install_packages() {
       pkg_any kvantum
       pkg_any plasma-widgets-addons kdeplasma-addons plasma6-addons
       pkg_any eza
+      pkg_any qt6-qt5compat
       ;;
     debian)
       if already fish; then
@@ -433,6 +441,8 @@ install_packages() {
         plasma-workspace konsole
       # FiraCode Nerd Font for Konsole/Yakuake/fastfetch (installed via zip below).
       pkg_any eza exa
+      # Sweet-sddm-v2 (Plasma 6): Qt5Compat.GraphicalEffects
+      pkg_any qml6-module-qt5compat-graphicaleffects
       # Qt6 Kvantum engine (theme files come from garuda-dr460nized)
       if ! pkg_any qt6-style-kvantum; then
         pkg_any qt5-style-kvantum kvantum || warn "Kvantum Qt style missing — install qt6-style-kvantum"
@@ -550,6 +560,8 @@ fetch_all() {
   fi
 
   clone sweet "https://github.com/EliverLara/sweet.git" "$SWEET_REF"
+  # Plasma 6 / Qt6 SDDM (nova's kde/sddm still needs QtQuick.Controls 1.x)
+  clone sweet-sddm-v2 "https://github.com/EliverLara/Sweet-sddm-v2.git"
   clone candy-icons "https://github.com/EliverLara/candy-icons.git"
   clone beautyline "https://gitlab.com/garuda-linux/themes-and-settings/artwork/beautyline.git"
   clone panel-colorizer "https://github.com/luisbocanegra/plasma-panel-colorizer.git"
@@ -876,6 +888,20 @@ install_plasmoids() {
   fi
 }
 
+# SDDM greeter only reads ThemeDir=/usr/share/sddm/themes.
+apply_sddm_theme() {
+  local name="${1:-Sweet}" conf="/etc/sddm.conf.d/zz-garuda-rice.conf"
+  [[ -d "/usr/share/sddm/themes/$name" ]] || {
+    warn "SDDM theme $name missing under /usr/share/sddm/themes — not applying"
+    return 1
+  }
+  as_root tee "$conf" >/dev/null <<EOF
+[Theme]
+Current=$name
+EOF
+  log "  SDDM theme → $name ($conf)"
+}
+
 # --- themes ---
 install_themes() {
   local SHARE src kde colorizer_root tmp meta laf_defaults
@@ -993,7 +1019,18 @@ install_themes() {
   }
   [[ -d "$kde/cursors/Sweet-cursors" ]] && dest_cp "$kde/cursors/Sweet-cursors" "$SHARE/icons/Sweet-cursors"
   [[ -d "$kde/konsole" ]] && { dest_mkdir "$SHARE/konsole"; dest_cp "$kde/konsole" "$SHARE/konsole"; }
-  [[ -d "$kde/sddm" ]] && dest_cp "$kde/sddm" "$SHARE/sddm/themes/Sweet"
+  # SDDM ThemeDir is /usr/share/sddm/themes — not /usr/local or ~/.local.
+  # Use Sweet-sddm-v2 (Plasma 6); nova's kde/sddm still needs Controls 1.x.
+  if [[ -d "$BUILD_DIR/sweet-sddm-v2" && -f "$BUILD_DIR/sweet-sddm-v2/Main.qml" ]]; then
+    dest_cp "$BUILD_DIR/sweet-sddm-v2" /usr/share/sddm/themes/Sweet
+    dest_rm "$SHARE/sddm/themes/Sweet"
+    apply_sddm_theme Sweet
+  elif [[ -d "$kde/sddm" ]]; then
+    warn "sweet-sddm-v2 missing — falling back to nova kde/sddm (broken on Qt6 greeter)"
+    dest_cp "$kde/sddm" /usr/share/sddm/themes/Sweet
+    dest_rm "$SHARE/sddm/themes/Sweet"
+    apply_sddm_theme Sweet
+  fi
 
   local gtk="$BUILD_DIR/sweet-gtk-dark/Sweet-Dark"
   [[ -d "$gtk" ]] || gtk="$(find "$BUILD_DIR/sweet-gtk-dark" -maxdepth 2 -type d -name Sweet-Dark | head -1 || true)"
