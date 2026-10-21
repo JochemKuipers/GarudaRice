@@ -888,18 +888,104 @@ install_plasmoids() {
   fi
 }
 
+# Active display-manager unit, if any (sddm | plasmalogin | unknown).
+active_display_manager() {
+  local unit
+  unit="$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null || true)"
+  case "$unit" in
+    *plasmalogin*) echo plasmalogin; return ;;
+    *sddm*) echo sddm; return ;;
+  esac
+  if systemctl is-enabled plasmalogin &>/dev/null \
+     || [[ -x /usr/bin/plasmalogin ]]; then
+    echo plasmalogin
+  elif systemctl is-enabled sddm &>/dev/null \
+     || have sddm || [[ -x /usr/bin/sddm ]]; then
+    echo sddm
+  else
+    echo unknown
+  fi
+}
+
 # SDDM greeter only reads ThemeDir=/usr/share/sddm/themes.
 apply_sddm_theme() {
   local name="${1:-Sweet}" conf="/etc/sddm.conf.d/zz-garuda-rice.conf"
   [[ -d "/usr/share/sddm/themes/$name" ]] || {
     warn "SDDM theme $name missing under /usr/share/sddm/themes — not applying"
-    return 1
+    return 0
   }
+  dest_mkdir /etc/sddm.conf.d
   as_root tee "$conf" >/dev/null <<EOF
 [Theme]
 Current=$name
 EOF
   log "  SDDM theme → $name ($conf)"
+}
+
+# Plasma Login Manager (Plasma 6.6+ / CachyOS default) ignores SDDM QML themes.
+# Greeter theming uses Plasma look-and-feel + color scheme under /usr/share.
+apply_plasmalogin_theme() {
+  local share laf colors
+  share="$(rice_share)"
+  laf="$share/plasma/look-and-feel/Dr460nized"
+  colors="$share/color-schemes/Sweet.colors"
+
+  # plasmalogin typically only searches system data dirs, not /usr/local or ~/.local.
+  if [[ -d "$laf" ]]; then
+    dest_cp "$laf" /usr/share/plasma/look-and-feel/Dr460nized
+  else
+    warn "Dr460nized look-and-feel missing — Login Screen theme incomplete"
+  fi
+  if [[ -f "$colors" ]]; then
+    dest_mkdir /usr/share/color-schemes
+    if [[ -w /usr/share/color-schemes ]]; then
+      install -m 0644 "$colors" /usr/share/color-schemes/Sweet.colors
+    else
+      as_root install -m 0644 "$colors" /usr/share/color-schemes/Sweet.colors
+    fi
+  fi
+
+  if ! id -u plasmalogin &>/dev/null; then
+    warn "plasmalogin user missing — skip Login Screen color/look-and-feel"
+    return 0
+  fi
+  if ! have kwriteconfig6; then
+    warn "kwriteconfig6 missing — skip Login Screen color/look-and-feel"
+    return 0
+  fi
+
+  as_root -u plasmalogin mkdir -p /var/lib/plasmalogin/.config
+  as_root -u plasmalogin kwriteconfig6 \
+    --file /var/lib/plasmalogin/.config/kdeglobals \
+    --group KDE --key LookAndFeelPackage Dr460nized
+  as_root -u plasmalogin kwriteconfig6 \
+    --file /var/lib/plasmalogin/.config/kdeglobals \
+    --group General --key ColorScheme Sweet
+  log "  Plasma Login Manager → Dr460nized / Sweet (System Settings → Login Screen)"
+}
+
+# Install greeter theme for whichever DM is active. Never abort the rice install.
+apply_login_theme() {
+  local name="${1:-Sweet}" dm
+  dm="$(active_display_manager)"
+  case "$dm" in
+    plasmalogin)
+      warn "Plasma Login Manager active — SDDM QML themes are not used"
+      apply_plasmalogin_theme || warn "Plasma Login Manager theme apply failed (continuing)"
+      ;;
+    sddm)
+      apply_sddm_theme "$name" || warn "SDDM theme apply failed (continuing)"
+      ;;
+    *)
+      if have sddm || [[ -x /usr/bin/sddm ]]; then
+        apply_sddm_theme "$name" || warn "SDDM theme apply failed (continuing)"
+      elif [[ -x /usr/bin/plasmalogin ]]; then
+        apply_plasmalogin_theme || warn "Plasma Login Manager theme apply failed (continuing)"
+      else
+        warn "No SDDM / Plasma Login Manager detected — greeter theme not applied"
+      fi
+      ;;
+  esac
 }
 
 # --- themes ---
@@ -1021,16 +1107,16 @@ install_themes() {
   [[ -d "$kde/konsole" ]] && { dest_mkdir "$SHARE/konsole"; dest_cp "$kde/konsole" "$SHARE/konsole"; }
   # SDDM ThemeDir is /usr/share/sddm/themes — not /usr/local or ~/.local.
   # Use Sweet-sddm-v2 (Plasma 6); nova's kde/sddm still needs Controls 1.x.
+  # Plasma Login Manager ignores these files — apply_login_theme handles that case.
   if [[ -d "$BUILD_DIR/sweet-sddm-v2" && -f "$BUILD_DIR/sweet-sddm-v2/Main.qml" ]]; then
     dest_cp "$BUILD_DIR/sweet-sddm-v2" /usr/share/sddm/themes/Sweet
     dest_rm "$SHARE/sddm/themes/Sweet"
-    apply_sddm_theme Sweet
   elif [[ -d "$kde/sddm" ]]; then
     warn "sweet-sddm-v2 missing — falling back to nova kde/sddm (broken on Qt6 greeter)"
     dest_cp "$kde/sddm" /usr/share/sddm/themes/Sweet
     dest_rm "$SHARE/sddm/themes/Sweet"
-    apply_sddm_theme Sweet
   fi
+  apply_login_theme Sweet
 
   local gtk="$BUILD_DIR/sweet-gtk-dark/Sweet-Dark"
   [[ -d "$gtk" ]] || gtk="$(find "$BUILD_DIR/sweet-gtk-dark" -maxdepth 2 -type d -name Sweet-Dark | head -1 || true)"

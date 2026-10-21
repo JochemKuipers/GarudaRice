@@ -59,7 +59,9 @@ for p in \
   "$SHARE/plasma/plasmoids/luisbocanegra.panel.colorizer" \
   "/usr/share/sddm/themes/Sweet" \
   "$SHARE/sddm/themes/Sweet" \
-  "/etc/sddm.conf.d/zz-garuda-rice.conf"
+  "/etc/sddm.conf.d/zz-garuda-rice.conf" \
+  "/usr/share/plasma/look-and-feel/Dr460nized" \
+  "/usr/share/color-schemes/Sweet.colors"
 do
   rm_path "$p"
 done
