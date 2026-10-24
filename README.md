@@ -24,7 +24,16 @@ git clone --depth 1 https://github.com/JochemKuipers/GarudaRice.git && cd Garuda
 ./install.sh --shell-only
 ./install.sh --user       # ~/.local instead of /usr/local
 ./uninstall.sh
+./fix-multimonitor.sh  # recover secondary panels/dock after display glitch
 ```
+
+If the second monitor’s window buttons die or dock icons vanish while an app is open, run:
+
+```bash
+./fix-multimonitor.sh
+```
+
+That realigns monitors so they share a real edge (Plasma breaks on corner-only layouts), restarts plasmashell, re-pins the secondary top/dock, and ensures window-buttons per-screen tracking. Use `./fix-multimonitor.sh --check` to diagnose without changing anything.
 
 Needs Plasma 6, git, curl/wget, and pacman/dnf/apt. First run downloads Sweet, BeautyLine, candy-icons, plasmoids, and garuda-dr460nized from upstream.
 
