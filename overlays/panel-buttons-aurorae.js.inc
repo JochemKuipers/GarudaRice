@@ -13,3 +13,7 @@ buttons.writeConfig("spacing", 6)
 buttons.writeConfig("useCurrentDecoration", false)
 buttons.writeConfig("useDecorationMetrics", false)
 buttons.writeConfig("visibility", 2)
+// Multi-monitor: track the active/maximized window on THIS screen, not only the
+// globally focused one (otherwise secondary buttons stay dead while primary works).
+buttons.writeConfig("filterByScreen", true)
+buttons.writeConfig("perScreenActive", true)

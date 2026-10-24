@@ -1,21 +1,29 @@
 var plasma = getApiVersion(1)
 
-// Center Krunner on screen - requires relogin
-const krunner = ConfigFile('krunnerrc')
-krunner.group = 'General'
-krunner.writeEntry('FreeFloating', true);
-
-// Change keyboard repeat delay from default 600ms to 250ms
-const kbd = ConfigFile('kcminputrc')
-kbd.group = 'Keyboard'
-kbd.writeEntry('RepeatDelay', 250);
-
 // Create Top Panel
+// Capture screen immediately — ShellCorona assigns it when adding via
+// "Add Panel" on a specific monitor. Stock KDE templates do this; without
+// it widgets/config dialogs can bind to the primary instead.
 const panel = new Panel
+var panelScreen = panel.screen
+
+// One-shot globals: only when creating the primary panel, not every clone
+if (panelScreen === 0) {
+    const krunner = ConfigFile('krunnerrc')
+    krunner.group = 'General'
+    krunner.writeEntry('FreeFloating', true);
+
+    const kbd = ConfigFile('kcminputrc')
+    kbd.group = 'Keyboard'
+    kbd.writeEntry('RepeatDelay', 250);
+}
+
 panel.alignment = "left"
 panel.floating = false
 panel.height = Math.round(gridUnit * 1.8);
 panel.location = "top"
+// Re-assert after geometry — some Plasma paths reset screen on location change
+panel.screen = panelScreen
 
 
 // The order in which the below Applets are listed will be reflected from Left to Right in the Top Panel. //
@@ -83,7 +91,7 @@ systray.currentConfigGroup = ["General"]
 // In Plasma 6, 'scaleIconsToFit' is the boolean that toggles
 // between "Small" (false) and "Scale with Panel height" (true)
 systray.writeConfig("scaleIconsToFit", true)
-systray.writeConfig("iconSize", 0) // Optional: If you want to ensure it doesn't default to a tiny fixed size
+systray.writeConfig("iconSize", 0)
 
 // User Switcher (plasma-addons; skip quietly if missing on the distro)
 try {
@@ -93,5 +101,7 @@ try {
   switcher.writeConfig("showName", false)
   switcher.writeConfig("showTechnicalInfo", true)
 } catch (e) { /* optional */ }
+
+panel.screen = panelScreen
 
 // End of Top Panel creation //

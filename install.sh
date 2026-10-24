@@ -831,12 +831,37 @@ patch_window_title() {
   done
 }
 
+# Panel Colorizer ships a C++ QML module (org.kde.plasma.panelcolorizer) required for
+# custom blur. Without it plasmashell logs "plugin not found" and can crash on Wayland
+# with: ext_background_effect_surface_v1: tried to set blur region on destroyed surface
+# — which then remaps panels/icons across monitors after the shell respawns.
+install_panel_colorizer_plugin() {
+  local src="$BUILD_DIR/panel-colorizer" build
+  [[ -f "$src/CMakeLists.txt" && -d "$src/plugin" ]] || {
+    warn "panel-colorizer sources missing — skip native blur plugin"
+    return 1
+  }
+  if [[ -e /usr/lib/qt6/qml/org/kde/plasma/panelcolorizer/libpanelcolorizerplugin.so ]]; then
+    log "  panel-colorizer native plugin already installed"
+    return 0
+  fi
+  log "  building panel-colorizer native QML plugin..."
+  build="$src/build/plugin"
+  rm -rf "$build"
+  cmake -B "$build" -S "$src" -DBUILD_PLUGIN=ON -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release \
+    || { warn "panel-colorizer plugin cmake failed"; return 1; }
+  cmake --build "$build" -j"$(nproc)" || { warn "panel-colorizer plugin build failed"; return 1; }
+  as_root cmake --install "$build" || { warn "panel-colorizer plugin install failed"; return 1; }
+  log "  installed org.kde.plasma.panelcolorizer → /usr/lib/qt6/qml/..."
+}
+
 install_plasmoids() {
   local SHARE; SHARE="$(rice_share)"
   WINDOW_BUTTONS_MODE=fallback
   ensure_build_deps
   log "Plasmoids..."
   install_plasmoid_repo "$BUILD_DIR/panel-colorizer" "luisbocanegra.panel.colorizer" || die "panel-colorizer failed"
+  install_panel_colorizer_plugin || warn "panel-colorizer blur plugin missing — panels may glitch on multi-monitor"
   install_plasmoid_repo "$BUILD_DIR/window-title" "org.kde.windowtitle" || warn "window-title failed"
   patch_window_title
 

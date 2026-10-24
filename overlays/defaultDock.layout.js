@@ -1,8 +1,9 @@
 var plasma = getApiVersion(1)
 
 // Create bottom panel (Dock) //
-
+// Capture screen immediately (same as stock KDE layout templates).
 const dock = new Panel
+var panelScreen = dock.screen
 
 // Basic Dock Geometry
 dock.alignment = "center"
@@ -10,6 +11,7 @@ dock.height = Math.round(gridUnit * 3.8)
 dock.hiding = "dodgewindows"
 dock.lengthMode = "fit"
 dock.location = "bottom"
+dock.screen = panelScreen
 
 // Panel Colorizer for Dock
 var colorizer = dock.addWidget("luisbocanegra.panel.colorizer")
@@ -26,6 +28,10 @@ tasks.writeConfig("iconSpacing", 2)
 tasks.writeConfig("launchers", "applications:org.kde.konsole.desktop,preferred://browser,preferred://filemanager,applications:org.kde.plasma-systemmonitor.desktop,applications:systemsettings.desktop")
 tasks.writeConfig("maxStripes", 1)
 tasks.writeConfig("showOnlyCurrentDesktop", false)
-tasks.writeConfig("showOnlyCurrentScreen", false)
+// Per-screen tasks: correct on multi-monitor, identical on single-monitor
+tasks.writeConfig("showOnlyCurrentScreen", true)
+
+dock.screen = panelScreen
 
 // End of Dock creation //
+
